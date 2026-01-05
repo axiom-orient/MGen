@@ -1,0 +1,44 @@
+import Foundation
+import OSLog
+import ComposableArchitecture
+import Dependencies
+
+public protocol LifecycleService: Sendable {
+  func initialize() async
+  func handleBackground() async
+  func handleForeground() async
+  func initializeAnalytics() async
+}
+
+public struct DefaultLifecycleService: LifecycleService {
+  private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowerFirstWord }}", category: "LifecycleService")
+
+  public init() {}
+
+  public func initialize() async {
+    logger.info("Lifecycle initialize")
+  }
+
+  public func handleBackground() async {
+    logger.debug("Lifecycle background transition")
+  }
+
+  public func handleForeground() async {
+    logger.debug("Lifecycle foreground transition")
+  }
+
+  public func initializeAnalytics() async {
+    logger.info("Lifecycle analytics initialization")
+  }
+}
+
+private enum LifecycleServiceKey: DependencyKey {
+  static let liveValue: any LifecycleService = DefaultLifecycleService()
+}
+
+public extension DependencyValues {
+  var lifecycleService: any LifecycleService {
+    get { self[LifecycleServiceKey.self] }
+    set { self[LifecycleServiceKey.self] = newValue }
+  }
+}

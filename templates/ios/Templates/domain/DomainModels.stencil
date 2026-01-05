@@ -1,0 +1,41 @@
+import Foundation
+
+// MARK: - Domain Entity
+
+/// {{ name }} domain entity
+/// TODO: Customize this entity for your domain
+public struct {{ name }}: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: Date
+    public let updatedAt: Date
+
+    // TODO: Add domain-specific properties
+    // Example:
+    // public var name: String
+    // public var status: {{ name }}Status
+    // public var metadata: [String: String]
+
+    public init(
+        id: String = UUID().uuidString,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        // TODO: Initialize domain-specific properties
+    }
+}
+
+// MARK: - Domain Errors
+
+public enum {{ name }}DomainError: Error, Sendable {
+    case invalidInput
+    case notFound(String)
+    case underlying(Error)
+
+    // TODO: Add domain-specific error cases
+    // Example:
+    // case validationFailed(String)
+    // case businessRuleViolation(String)
+}

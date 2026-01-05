@@ -1,0 +1,32 @@
+// Feature Module: {{ feature_name }}
+
+plugins {
+    id("convention.feature")
+}
+
+android {
+    namespace = "{{ base_package }}.feature.{{ feature_name_lower }}"
+}
+
+dependencies {
+    // Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+
+    // AndroidX
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+
+    // Compose
+    implementation(platform(libs.compose.bom))
+    implementation(libs.bundles.compose)
+    implementation(libs.androidx.navigation.compose)
+
+    // Lifecycle (ViewModel, etc.)
+    implementation(libs.bundles.lifecycle)
+
+    // Add domain/service dependencies here
+    // implementation(projects.domain.domainNameApi)
+    // implementation(projects.service.serviceNameApi)
+}

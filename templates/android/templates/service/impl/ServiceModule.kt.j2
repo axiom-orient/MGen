@@ -1,0 +1,23 @@
+package {{ base_package }}.service.{{ service_name_lower }}.impl.di
+
+import {{ base_package }}.service.{{ service_name_lower }}.{{ service_name }}Service
+import {{ base_package }}.service.{{ service_name_lower }}.impl.Live{{ service_name }}Service
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+/**
+ * Hilt module for {{ service_name }} service
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class {{ service_name }}ServiceModule {
+
+    @Binds
+    @Singleton
+    abstract fun bind{{ service_name }}Service(
+        impl: Live{{ service_name }}Service
+    ): {{ service_name }}Service
+}

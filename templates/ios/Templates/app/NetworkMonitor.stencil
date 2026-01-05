@@ -1,0 +1,296 @@
+import Foundation
+import Network
+import OSLog
+
+// MARK: - {{ name }} NetworkMonitor
+
+private let _nmLogger = Logger(subsystem: "{{ bundleIdPrefix }}.networkmonitor", category: "NetworkMonitor")
+
+// MARK: - Network Status
+
+/// Network connection status
+public enum NetworkStatus: String, Sendable, CaseIterable, Equatable {
+    case connected
+    case disconnected
+    case connecting
+    case unknown
+
+    public var isConnected: Bool { self == .connected }
+}
+
+/// Network connection type
+public enum NetworkConnectionType: String, Sendable, CaseIterable, Comparable, Equatable {
+    case wifi, cellular, wiredEthernet, loopback, other, unavailable
+
+    public var priority: Int {
+        switch self {
+        case .wifi: return 0
+        case .cellular: return 1
+        case .wiredEthernet: return 2
+        case .loopback: return 3
+        case .other: return 4
+        case .unavailable: return 5
+        }
+    }
+
+    public var isExpensive: Bool { self == .cellular }
+    public var isMobile: Bool { self == .cellular }
+
+    public static func < (lhs: NetworkConnectionType, rhs: NetworkConnectionType) -> Bool {
+        lhs.priority < rhs.priority
+    }
+}
+
+/// Network state information
+public struct NetworkState: Equatable, Sendable {
+    public let status: NetworkStatus
+    public let primaryConnectionType: NetworkConnectionType
+    public let availableConnectionTypes: [NetworkConnectionType]
+    public let isExpensive: Bool
+    public let isConstrained: Bool
+
+    public var isConnected: Bool { status.isConnected }
+    public var isWiFi: Bool { isConnected && primaryConnectionType == .wifi }
+    public var isCellular: Bool { isConnected && primaryConnectionType == .cellular }
+    public var isWired: Bool { isConnected && primaryConnectionType == .wiredEthernet }
+
+    public init(
+        status: NetworkStatus,
+        primaryConnectionType: NetworkConnectionType = .unavailable,
+        availableConnectionTypes: [NetworkConnectionType] = [],
+        isExpensive: Bool = false,
+        isConstrained: Bool = false
+    ) {
+        self.status = status
+
+        if status.isConnected {
+            self.primaryConnectionType = primaryConnectionType
+            self.availableConnectionTypes = availableConnectionTypes.isEmpty
+                ? [primaryConnectionType].sorted()
+                : availableConnectionTypes.sorted()
+            self.isExpensive = isExpensive
+            self.isConstrained = isConstrained
+        } else {
+            self.primaryConnectionType = .unavailable
+            self.availableConnectionTypes = [.unavailable]
+            self.isExpensive = false
+            self.isConstrained = false
+        }
+    }
+
+    public static let initial = NetworkState(status: .unknown)
+    public static let disconnected = NetworkState(status: .disconnected)
+    public static let connecting = NetworkState(status: .connecting)
+}
+
+// MARK: - Network Monitor Protocol
+
+/// Network monitoring interface
+public protocol NetworkMonitoring: Sendable {
+    /// Current network status
+    var status: NetworkStatus { get async }
+
+    /// Current network state
+    var currentState: NetworkState { get async }
+
+    /// Whether the network is currently connected
+    var isConnected: Bool { get async }
+
+    /// Start monitoring network changes
+    func start() async
+
+    /// Stop monitoring network changes
+    func stop() async
+
+    /// Network state stream for reactive updates
+    var stateStream: AsyncStream<NetworkState> { get async }
+}
+
+// MARK: - Network Monitor Implementation
+
+/// Actor-based network monitor using NWPathMonitor
+///
+/// This implementation provides thread-safe network connectivity monitoring
+/// with reactive updates via AsyncStream.
+///
+/// Usage:
+/// ```swift
+/// let monitor = NetworkMonitor.shared
+/// await monitor.start()
+///
+/// // Check current status
+/// let isConnected = await monitor.isConnected
+///
+/// // Observe changes
+/// for await state in await monitor.stateStream {
+///     print("Network state: \(state.status)")
+/// }
+/// ```
+public actor NetworkMonitor: NetworkMonitoring {
+    public static let shared = NetworkMonitor()
+
+    private let nwMonitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "{{ bundleIdPrefix }}.networkmonitor")
+    private var _currentState: NetworkState = .initial
+    private var isMonitoring = false
+    private var streamContinuation: AsyncStream<NetworkState>.Continuation?
+
+    private init() {}
+
+    public var status: NetworkStatus {
+        get async { _currentState.status }
+    }
+
+    public var currentState: NetworkState {
+        get async { _currentState }
+    }
+
+    public var isConnected: Bool {
+        get async { _currentState.isConnected }
+    }
+
+    public var stateStream: AsyncStream<NetworkState> {
+        get async {
+            let (stream, continuation) = AsyncStream.makeStream(of: NetworkState.self)
+            streamContinuation = continuation
+            // Emit current state immediately
+            continuation.yield(_currentState)
+            return stream
+        }
+    }
+
+    public func start() async {
+        guard !isMonitoring else {
+            _nmLogger.debug("NetworkMonitor already running")
+            return
+        }
+        isMonitoring = true
+
+        nwMonitor.pathUpdateHandler = { [weak self] path in
+            Task { [weak self] in
+                await self?.handlePathUpdate(path)
+            }
+        }
+        nwMonitor.start(queue: queue)
+        _nmLogger.info("NetworkMonitor started")
+    }
+
+    public func stop() async {
+        guard isMonitoring else {
+            _nmLogger.debug("NetworkMonitor not running")
+            return
+        }
+        isMonitoring = false
+        nwMonitor.cancel()
+        streamContinuation?.finish()
+        streamContinuation = nil
+        _nmLogger.info("NetworkMonitor stopped")
+    }
+
+    private func handlePathUpdate(_ path: NWPath) {
+        let newState = convertPathToState(path)
+
+        if newState != _currentState {
+            _currentState = newState
+            streamContinuation?.yield(newState)
+            _nmLogger.debug("Network state changed: \(newState.status.rawValue)")
+        }
+    }
+
+    private func convertPathToState(_ path: NWPath) -> NetworkState {
+        guard path.status == .satisfied else {
+            return .disconnected
+        }
+
+        // Determine primary connection type
+        let primaryType: NetworkConnectionType
+        if path.usesInterfaceType(.wifi) {
+            primaryType = .wifi
+        } else if path.usesInterfaceType(.cellular) {
+            primaryType = .cellular
+        } else if path.usesInterfaceType(.wiredEthernet) {
+            primaryType = .wiredEthernet
+        } else if path.usesInterfaceType(.loopback) {
+            primaryType = .loopback
+        } else {
+            primaryType = .other
+        }
+
+        // Collect all available types
+        var availableTypes: [NetworkConnectionType] = []
+        if path.usesInterfaceType(.wifi) { availableTypes.append(.wifi) }
+        if path.usesInterfaceType(.cellular) { availableTypes.append(.cellular) }
+        if path.usesInterfaceType(.wiredEthernet) { availableTypes.append(.wiredEthernet) }
+        if path.usesInterfaceType(.loopback) { availableTypes.append(.loopback) }
+        if path.usesInterfaceType(.other) { availableTypes.append(.other) }
+
+        return NetworkState(
+            status: .connected,
+            primaryConnectionType: primaryType,
+            availableConnectionTypes: availableTypes,
+            isExpensive: path.isExpensive,
+            isConstrained: path.isConstrained
+        )
+    }
+}
+
+// MARK: - SwiftUI Integration
+
+#if canImport(SwiftUI)
+import SwiftUI
+
+/// ObservableObject wrapper for NetworkMonitor for SwiftUI integration
+///
+/// Usage:
+/// ```swift
+/// @StateObject private var networkObserver = NetworkStatusObserver()
+///
+/// var body: some View {
+///     Text(networkObserver.isConnected ? "Connected" : "Disconnected")
+///         .task {
+///             await networkObserver.start()
+///         }
+/// }
+/// ```
+@MainActor
+public final class NetworkStatusObserver: ObservableObject {
+    @Published public private(set) var status: NetworkStatus = .unknown
+    @Published public private(set) var isConnected: Bool = false
+    @Published public private(set) var currentState: NetworkState = .initial
+
+    private let monitor: any NetworkMonitoring
+    private var observationTask: Task<Void, Never>?
+
+    public init(monitor: any NetworkMonitoring = NetworkMonitor.shared) {
+        self.monitor = monitor
+    }
+
+    /// Start observing network changes
+    public func start() async {
+        guard observationTask == nil else { return }
+
+        await monitor.start()
+
+        observationTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            for await state in await self.monitor.stateStream {
+                self.currentState = state
+                self.status = state.status
+                self.isConnected = state.isConnected
+            }
+        }
+    }
+
+    /// Stop observing network changes
+    public func stop() async {
+        observationTask?.cancel()
+        observationTask = nil
+        await monitor.stop()
+    }
+
+    deinit {
+        observationTask?.cancel()
+    }
+}
+#endif

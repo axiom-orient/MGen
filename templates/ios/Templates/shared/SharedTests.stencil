@@ -1,0 +1,136 @@
+import Testing
+import Foundation
+@testable import {{ name }}Sources
+
+// MARK: - {{ name }} Tests
+
+@Suite("{{ name }} Tests")
+struct {{ name }}Tests {
+
+    // MARK: - Example: NetworkMonitor Tests
+
+    @Test("NetworkMonitor starts in unknown state")
+    func networkMonitorInitialState() async {
+        let monitor = NetworkMonitor.shared
+        let status = await monitor.status
+
+        #expect(status == .unknown)
+    }
+
+    @Test("NetworkMonitor isConnected reflects status")
+    func networkMonitorConnection() async {
+        let monitor = NetworkMonitor.shared
+        let isConnected = await monitor.isConnected
+
+        // Initially should be false (unknown or disconnected)
+        #expect(isConnected == false)
+    }
+
+    // MARK: - Example: KeychainStorage Tests
+
+    @Test("KeychainStorage saves and loads values")
+    func keychainStorageSaveLoad() async throws {
+        let storage = KeychainStorage(service: "test.{{ bundleIdPrefix }}")
+        let testValue = "TestValue"
+        let testKey = "testKey"
+
+        // Save
+        try await storage.save(testValue, forKey: testKey)
+
+        // Load
+        let loadedValue = try await storage.load(forKey: testKey, as: String.self)
+        #expect(loadedValue == testValue)
+
+        // Cleanup
+        try await storage.delete(forKey: testKey)
+    }
+
+    @Test("KeychainStorage returns nil for missing keys")
+    func keychainStorageMissingKey() async throws {
+        let storage = KeychainStorage(service: "test.{{ bundleIdPrefix }}")
+        let testKey = "nonexistentKey"
+
+        let loadedValue = try await storage.load(forKey: testKey, as: String.self)
+        #expect(loadedValue == nil)
+    }
+
+    @Test("KeychainStorage deletes values")
+    func keychainStorageDelete() async throws {
+        let storage = KeychainStorage(service: "test.{{ bundleIdPrefix }}")
+        let testValue = "TestValue"
+        let testKey = "testKeyToDelete"
+
+        // Save
+        try await storage.save(testValue, forKey: testKey)
+
+        // Verify saved
+        let savedValue = try await storage.load(forKey: testKey, as: String.self)
+        #expect(savedValue == testValue)
+
+        // Delete
+        try await storage.delete(forKey: testKey)
+
+        // Verify deleted
+        let deletedValue = try await storage.load(forKey: testKey, as: String.self)
+        #expect(deletedValue == nil)
+    }
+
+    // MARK: - Example: Property Wrapper Tests
+
+    @Test("PublishedUserDefault stores and retrieves values")
+    func publishedUserDefaultStorage() {
+        let defaults = UserDefaults(suiteName: "test.{{ bundleIdPrefix }}.defaults")!
+        defer { defaults.removePersistentDomain(forName: "test.{{ bundleIdPrefix }}.defaults") }
+
+        var wrapper = PublishedUserDefault(
+            key: "testBool",
+            defaultValue: false,
+            userDefaults: defaults
+        )
+
+        // Default value
+        #expect(wrapper.wrappedValue == false)
+
+        // Set value
+        wrapper.wrappedValue = true
+        #expect(wrapper.wrappedValue == true)
+
+        // Verify persisted
+        let storedValue = defaults.bool(forKey: "testBool")
+        #expect(storedValue == true)
+    }
+
+    @Test("PublishedCodableUserDefault stores and retrieves Codable values")
+    func publishedCodableUserDefaultStorage() {
+        struct TestModel: Codable, Equatable {
+            let name: String
+            let value: Int
+        }
+
+        let defaults = UserDefaults(suiteName: "test.{{ bundleIdPrefix }}.codable")!
+        defer { defaults.removePersistentDomain(forName: "test.{{ bundleIdPrefix }}.codable") }
+
+        var wrapper = PublishedCodableUserDefault<TestModel>(
+            key: "testModel",
+            userDefaults: defaults
+        )
+
+        // Default value (nil)
+        #expect(wrapper.wrappedValue == nil)
+
+        // Set value
+        let testModel = TestModel(name: "Test", value: 42)
+        wrapper.wrappedValue = testModel
+        #expect(wrapper.wrappedValue == testModel)
+
+        // Verify persisted
+        let data = defaults.data(forKey: "testModel")
+        #expect(data != nil)
+    }
+
+    // TODO: Add your module-specific tests below
+    // - Test all public APIs
+    // - Test edge cases and error conditions
+    // - Use Swift Testing (@Test, @Suite, #expect)
+    // - Clean up resources in defer blocks
+}

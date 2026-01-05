@@ -1,0 +1,60 @@
+import SwiftUI
+import Dependencies
+
+// MARK: - Feature Builder Protocol
+
+/// Entry point contract for the {{ name }} feature.
+///
+/// Features expose builders so that the App layer can compose concrete implementations
+/// without forcing higher layers to depend on Implementation details.
+public protocol {{ name }}FeatureBuildable: Sendable {
+    /// Builds the feature view hierarchy.
+    @MainActor
+    func build() -> AnyView
+}
+
+public extension {{ name }}FeatureBuildable {
+    func eraseToAnyView() -> AnyView { build() }
+}
+
+// MARK: - TestDependencyKey Conformance
+
+extension {{ name }}FeatureBuildable: TestDependencyKey {
+    public static var testValue: any {{ name }}FeatureBuildable {
+        Stub{{ name }}FeatureBuilder()
+    }
+
+    #if DEBUG
+    public static var previewValue: any {{ name }}FeatureBuildable {
+        Stub{{ name }}FeatureBuilder()
+    }
+    #endif
+}
+
+// MARK: - DependencyValues Extension
+
+public extension DependencyValues {
+    var {{ name | lowerFirstWord }}FeatureBuilder: any {{ name }}FeatureBuildable {
+        get { self[{{ name }}FeatureBuildable.self] }
+        set { self[{{ name }}FeatureBuildable.self] = newValue }
+    }
+}
+
+// MARK: - Test Helpers
+
+/// Stub builder for testing and previews
+private struct Stub{{ name }}FeatureBuilder: {{ name }}FeatureBuildable, @unchecked Sendable {
+    @MainActor
+    func build() -> AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: 8) {
+                Text("{{ name }} Feature")
+                    .font(.headline)
+                Text("Stubbed builder for testing/previews")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+        )
+    }
+}

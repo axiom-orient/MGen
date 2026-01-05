@@ -1,0 +1,79 @@
+import Foundation
+import Dependencies
+
+// MARK: - Service Protocol
+
+/// Service protocol for {{ name }}
+/// TODO: Define your service interface
+public protocol {{ name }}Service: Sendable {
+    // TODO: Add service methods
+    // Examples:
+    // func fetchData(id: String) async throws -> Data
+    // func sendRequest(_ request: RequestType) async throws -> ResponseType
+    // func initialize() async throws
+    // func cleanup() async throws
+}
+
+// MARK: - Service Errors
+
+public enum {{ name }}ServiceError: Error, Sendable {
+    case notConfigured
+    case networkError(Error)
+    case invalidResponse
+
+    // TODO: Add service-specific error cases
+    // Examples:
+    // case timeout
+    // case unauthorized
+    // case rateLimitExceeded
+}
+
+// MARK: - TestDependencyKey Conformance
+
+extension {{ name }}Service: TestDependencyKey {
+    public static var testValue: any {{ name }}Service {
+        Unimplemented{{ name }}Service()
+    }
+
+    #if DEBUG
+    public static var previewValue: any {{ name }}Service {
+        Preview{{ name }}Service()
+    }
+    #endif
+}
+
+// MARK: - DependencyValues Extension
+
+public extension DependencyValues {
+    var {{ name | lowercase }}Service: any {{ name }}Service {
+        get { self[{{ name }}Service.self] }
+        set { self[{{ name }}Service.self] = newValue }
+    }
+}
+
+// MARK: - Test Helpers
+
+/// Unimplemented {{ name }}Service for testing
+public struct Unimplemented{{ name }}Service: {{ name }}Service {
+    public init() {}
+
+    // TODO: Implement unimplemented methods that match your protocol
+    // Example:
+    // public func fetchData(id: String) async throws -> Data {
+    //     XCTFail("\(Self.self).fetchData not implemented")
+    //     throw {{ name }}ServiceError.notConfigured
+    // }
+}
+
+#if DEBUG
+/// Preview {{ name }}Service with mock data for SwiftUI previews
+public struct Preview{{ name }}Service: {{ name }}Service {
+    public init() {}
+
+    // TODO: Implement preview methods with mock data
+    // Example:
+    // public func fetchData(id: String) async throws -> Data {
+    //     Data("Mock data for preview".utf8)
+    // }
+}
+#endif

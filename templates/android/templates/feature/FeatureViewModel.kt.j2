@@ -1,0 +1,61 @@
+package {{ base_package }}.feature.{{ feature_name_lower }}
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+import androidx.lifecycle.SavedStateHandle
+
+/**
+ * ViewModel for {{ feature_name }} feature
+ * Implements MVI pattern with State, Action, and SideEffect
+ */
+@HiltViewModel
+public class {{ feature_name }}ViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle
+) : ViewModel() {
+
+    private val _state = MutableStateFlow({{ feature_name }}State())
+    public val state: StateFlow<{{ feature_name }}State> = _state.asStateFlow()
+
+    private val _sideEffect = Channel<{{ feature_name }}SideEffect>()
+    public val sideEffect: Flow<{{ feature_name }}SideEffect> = _sideEffect.receiveAsFlow()
+
+    init {
+        loadData()
+    }
+
+    public fun onAction(action: {{ feature_name }}Action) {
+        when (action) {
+            is {{ feature_name }}Action.Refresh -> loadData()
+            is {{ feature_name }}Action.OnItemClicked -> {
+                // TODO: Handle item click navigation
+            }
+            is {{ feature_name }}Action.OnBackClicked -> {
+                // TODO: Handle back navigation
+            }
+        }
+    }
+
+    private fun loadData() {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true) }
+
+            // TODO: Call use case here
+            // Example:
+            // val result = getSomethingUseCase()
+            // _state.update { it.copy(isLoading = false, data = result) }
+
+            _state.update { it.copy(isLoading = false, data = listOf("{{ feature_name }} loaded")) }
+        }
+    }
+}
+

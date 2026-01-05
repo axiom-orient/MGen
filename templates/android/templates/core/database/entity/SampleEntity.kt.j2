@@ -1,0 +1,12 @@
+package {{ cookiecutter.base_package }}.core.database.entity
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "sample_entities")
+data class SampleEntity(
+    @PrimaryKey
+    val id: String,
+    val payload: String,
+    val updatedAt: Long
+)

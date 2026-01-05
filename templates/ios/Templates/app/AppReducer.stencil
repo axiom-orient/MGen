@@ -1,0 +1,167 @@
+import SwiftUI
+import Foundation
+import ComposableArchitecture
+import Dependencies
+import OSLog
+import DailyActionList
+
+// MARK: - Root View State
+
+/// Priority: maintenance > forceUpdate > error > main > splash
+public enum RootViewState: Equatable, Sendable {
+    case splash
+    case maintenance(message: String)
+    case forceUpdate(requiredVersion: String)
+    case error(message: String)
+    case main
+}
+
+// MARK: - App Reducer
+
+@Reducer
+public struct AppReducer {
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "App")
+    @Dependency(\.deepLink) private var deepLink
+    @Dependency(\.remoteConfigService) private var remoteConfigService
+    @Dependency(\.appState) private var appState
+
+    @ObservableState
+    public struct State: Equatable, Sendable {
+        public var lifecycle = ApplicationLifecycle.State()
+        
+        // Root View State
+        public var rootViewState: RootViewState = .splash
+        
+        // Feature State
+        public var dailyActionList = DailyActionListFeature.State()
+        
+        // UI State (Legacy removed, kept minimal)
+        public var welcomeMessage = "Welcome!"
+        
+        @Presents public var alert: AlertState<Action.Alert>?
+
+        public init() {}
+    }
+
+    @CasePathable
+    public enum Action: Sendable {
+        case lifecycle(ApplicationLifecycle.Action)
+        case dailyActionList(DailyActionListFeature.Action)
+        case view(ViewAction)
+        case `internal`(InternalAction)
+        case alert(PresentationAction<Alert>)
+
+        public enum Alert: Sendable, Equatable {
+            case dismiss
+        }
+    }
+
+    public enum ViewAction: Sendable, Equatable {
+        case appDidLaunch
+        case retryColdStart
+        case splashAnimationCompleted
+        case deepLinkReceived(URL)
+    }
+
+    public enum InternalAction: Sendable, Equatable {
+        case updateRootViewState(RootViewState)
+        case deepLinkHandled(Bool, URL)
+    }
+
+    public init() {}
+
+    public var body: some ReducerOf<Self> {
+        Scope(state: \.dailyActionList, action: \.dailyActionList) {
+            DailyActionListFeature()
+        }
+
+        Reduce { state, action in
+            switch action {
+            // MARK: - View Actions
+            case .view(.appDidLaunch):
+                logger.info("📱 App launch sequence started")
+                return .send(.lifecycle(.view(.initialize)))
+
+            case .view(.retryColdStart):
+                logger.info("🔄 Retry cold start requested")
+                state.rootViewState = .splash
+                return .send(.lifecycle(.view(.retry)))
+                
+            case .view(.splashAnimationCompleted):
+                return .send(.lifecycle(.view(.splashAnimationCompleted)))
+
+            case let .view(.deepLinkReceived(url)):
+                let route = deepLink.parse(url)
+                logger.debug("🔗 Received deep link: \(url.absoluteString, privacy: .public) → \(String(describing: route))")
+                return .run { send in
+                    let handled = await deepLink.handleDeepLink(url)
+                    await send(.internal(.deepLinkHandled(handled, url)))
+                }
+
+            // MARK: - Internal Actions
+            case let .internal(.updateRootViewState(newState)):
+                state.rootViewState = newState
+                return .none
+
+            case let .internal(.deepLinkHandled(false, url)):
+                state.alert = AlertState {
+                    TextState("지원하지 않는 링크")
+                } actions: {
+                    ButtonState(role: .cancel, action: .dismiss) {
+                        TextState("닫기")
+                    }
+                } message: {
+                    TextState("현재는 \(url.absoluteString) 경로를 지원하지 않아요.")
+                }
+                return .none
+
+            case .internal(.deepLinkHandled):
+                return .none
+
+            // MARK: - Feature Actions
+            case .dailyActionList:
+                return .none
+
+            // MARK: - Alert Actions
+            case .alert(.presented(.dismiss)), .alert(.dismiss):
+                state.alert = nil
+                return .none
+
+            // MARK: - Lifecycle Delegate Actions
+            case let .lifecycle(.delegate(.startupResult(result))):
+                switch result {
+                case .ready:
+                    // Only transition if splash animation is also complete
+                    if state.lifecycle.isSplashAnimationComplete {
+                        state.rootViewState = .main
+                        
+                        // NOTE: If you need to perform actions when entering Main, do it here.
+                    }
+                    return .none
+                    
+                case let .maintenance(message):
+                    state.rootViewState = .maintenance(message: message)
+                    
+                case let .forceUpdate(version):
+                    state.rootViewState = .forceUpdate(requiredVersion: version)
+                    
+                case let .error(message):
+                    state.rootViewState = .error(message: message)
+                }
+                return .none
+                
+            case .lifecycle(.delegate(.showSplash)):
+                state.rootViewState = .splash
+                return .none
+
+            // MARK: - Other Lifecycle Actions
+            case .lifecycle:
+                return .none
+            }
+        }
+        .ifLet(\.$alert, action: \.alert)
+        Scope(state: \.lifecycle, action: \.lifecycle) {
+            ApplicationLifecycle()
+        }
+    }
+}

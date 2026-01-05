@@ -1,0 +1,13 @@
+package {{ base_package }}.feature.{{ feature_name_lower }}
+
+/**
+ * User actions for {{ feature_name }} feature
+ */
+/**
+ * UI Actions for {{ feature_name }}
+ */
+public sealed interface {{ feature_name }}Action {
+    public object Refresh : {{ feature_name }}Action
+    public object OnBackClicked : {{ feature_name }}Action
+    public data class OnItemClicked(public val id: String) : {{ feature_name }}Action
+}

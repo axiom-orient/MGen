@@ -1,0 +1,63 @@
+# Rust
+service/target/
+target/
+
+
+# Generated Output
+generated/
+projects/
+
+# Logs
+logs/
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Environment variables
+.env
+.env.local
+
+# ===========================
+# iOS / Tuist Templates
+# ===========================
+
+# Xcode generated projects and workspaces
+*.xcodeproj
+*.xcworkspace
+
+# Tuist / Swift build products
+DerivedData/
+build/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.pins
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# CocoaPods
+Pods/
+Manifest.lock

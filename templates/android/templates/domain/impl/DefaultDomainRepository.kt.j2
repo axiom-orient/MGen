@@ -1,0 +1,36 @@
+package {{ base_package }}.domain.{{ domain_name_lower }}.impl.repository
+
+import {{ base_package }}.domain.{{ domain_name_lower }}.model.{{ domain_name }}
+import {{ base_package }}.domain.{{ domain_name_lower }}.repository.{{ domain_name }}Repository
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import javax.inject.Inject
+
+/**
+ * Default implementation of {{ domain_name }}Repository
+ */
+/**
+ * Default implementation of {{ domain_name }}Repository
+ */
+public class Default{{ domain_name }}Repository @Inject constructor(
+    // Inject services here
+) : {{ domain_name }}Repository {
+
+    override fun getAll(): Flow<List<{{ domain_name }}>> {
+        // TODO: Implement actual logic
+        return flowOf(emptyList())
+    }
+
+    override suspend fun getById(id: String): {{ domain_name }}? {
+        // TODO: Implement actual logic
+        return null
+    }
+
+    override suspend fun save(item: {{ domain_name }}) {
+        // TODO: Implement actual logic
+    }
+
+    override suspend fun delete(id: String) {
+        // TODO: Implement actual logic
+    }
+}

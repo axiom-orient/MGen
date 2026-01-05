@@ -1,0 +1,75 @@
+package {{ cookiecutter.base_package }}.core.network.di
+
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Named
+import javax.inject.Singleton
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Converter
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import {{ cookiecutter.base_package }}.core.network.NetworkMonitor
+import {{ cookiecutter.base_package }}.core.network.DefaultNetworkMonitor
+
+@Module
+@InstallIn(SingletonComponent::class)
+object NetworkModule {
+
+    @Provides
+    @Singleton
+    fun provideJson(): Json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(
+        @Named("isDebug") isDebug: Boolean
+    ): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+
+        if (isDebug) {
+            val logging = HttpLoggingInterceptor()
+            logging.level = HttpLoggingInterceptor.Level.BODY
+            builder.addInterceptor(logging)
+        }
+
+        return builder.build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideConverterFactory(json: Json): Converter.Factory {
+        return json.asConverterFactory("application/json".toMediaType())
+    }
+
+    @Provides
+    @Singleton
+    fun provideRetrofit(
+        @Named("baseUrl") baseUrl: String,
+        okHttpClient: OkHttpClient,
+        converterFactory: Converter.Factory
+    ): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl(baseUrl)
+            .client(okHttpClient)
+            .addConverterFactory(converterFactory)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideNetworkMonitor(
+        @ApplicationContext context: Context
+    ): NetworkMonitor {
+        return DefaultNetworkMonitor(context)
+    }
+}

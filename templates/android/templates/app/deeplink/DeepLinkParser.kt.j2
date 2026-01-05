@@ -1,0 +1,179 @@
+package {{ cookiecutter.base_package }}.deeplink
+
+import android.net.Uri
+import android.util.Log
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+
+/**
+ * Deep Link Parser utility.
+ * Android equivalent of iOS DeepLinkParser.
+ *
+ * Parses URLs into type-safe DeepLinkRoute objects.
+ * Supports both custom scheme and universal links.
+ */
+object DeepLinkParser {
+
+    private const val TAG = "DeepLinkParser"
+
+    // Custom scheme: {{ cookiecutter.project_slug }}://
+    private const val CUSTOM_SCHEME = "{{ cookiecutter.project_slug }}"
+
+    // Universal link host (configure in your app)
+    private const val UNIVERSAL_LINK_HOST = "{{ cookiecutter.project_slug }}.app"
+
+    // Date formatters (ISO 8601)
+    private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+    private val dateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+    /**
+     * Parse a deep link URI into a DeepLinkRoute.
+     *
+     * Supported formats:
+     * - Custom scheme: {{ cookiecutter.project_slug }}://home?date=2024-01-15
+     * - Universal link: https://{{ cookiecutter.project_slug }}.app/stats?mode=week
+     *
+     * @param uri The deep link URI
+     * @return Parsed DeepLinkRoute, or Unknown if not recognized
+     */
+    public fun parse(uri: Uri): DeepLinkRoute {
+        Log.d(TAG, "Parsing deep link: $uri")
+
+        val pathSegments = getPathSegments(uri)
+        val queryParams = getQueryParams(uri)
+
+        Log.d(TAG, "Path segments: $pathSegments, Query params: $queryParams")
+
+        if (pathSegments.isEmpty()) {
+            return DeepLinkRoute.Home(date = parseDate(queryParams["date"]))
+        }
+
+        return when (pathSegments.firstOrNull()?.lowercase()) {
+            "home", "" -> DeepLinkRoute.Home(
+                date = parseDate(queryParams["date"])
+            )
+
+            "stats" -> DeepLinkRoute.Stats(
+                date = parseDate(queryParams["date"]),
+                mode = StatsViewMode.fromString(queryParams["mode"])
+            )
+
+            "item" -> when {
+                pathSegments.size >= 2 -> DeepLinkRoute.ItemDetail(
+                    itemId = pathSegments[1]
+                )
+                queryParams.containsKey("id") -> DeepLinkRoute.ItemDetail(
+                    itemId = queryParams["id"]!!
+                )
+                else -> DeepLinkRoute.Unknown(uri.toString())
+            }
+
+            "add" -> DeepLinkRoute.AddItem(
+                startDate = parseDateTime(queryParams["start"]),
+                durationMinutes = queryParams["duration"]?.toIntOrNull(),
+                type = ItemType.fromString(queryParams["type"])
+            )
+
+            "settings" -> DeepLinkRoute.Settings
+
+            else -> DeepLinkRoute.Unknown(uri.toString())
+        }
+    }
+
+    /**
+     * Check if this URI is a valid deep link for this app.
+     */
+    fun isValidDeepLink(uri: Uri): Boolean {
+        return when (uri.scheme?.lowercase()) {
+            CUSTOM_SCHEME -> true
+            "http", "https" -> uri.host?.lowercase() == UNIVERSAL_LINK_HOST
+            else -> false
+        }
+    }
+
+    /**
+     * Build a deep link URI for a given route.
+     */
+    fun buildUri(route: DeepLinkRoute): Uri {
+        val builder = Uri.Builder()
+            .scheme(CUSTOM_SCHEME)
+
+        when (route) {
+            is DeepLinkRoute.Home -> {
+                builder.authority("home")
+                route.date?.let { builder.appendQueryParameter("date", it.format(dateFormatter)) }
+            }
+            is DeepLinkRoute.Stats -> {
+                builder.authority("stats")
+                route.date?.let { builder.appendQueryParameter("date", it.format(dateFormatter)) }
+                route.mode?.let { builder.appendQueryParameter("mode", it.name.lowercase()) }
+            }
+            is DeepLinkRoute.ItemDetail -> {
+                builder.authority("item")
+                    .appendPath(route.itemId)
+            }
+            is DeepLinkRoute.AddItem -> {
+                builder.authority("add")
+                route.startDate?.let { builder.appendQueryParameter("start", it.format(dateTimeFormatter)) }
+                route.durationMinutes?.let { builder.appendQueryParameter("duration", it.toString()) }
+                route.type?.let { builder.appendQueryParameter("type", it.name.lowercase()) }
+            }
+            is DeepLinkRoute.Settings -> {
+                builder.authority("settings")
+            }
+            is DeepLinkRoute.Unknown -> {
+                return Uri.parse(route.url)
+            }
+        }
+
+        return builder.build()
+    }
+
+    private fun getPathSegments(uri: Uri): List<String> {
+        val segments = mutableListOf<String>()
+
+        // For custom scheme, host is the first "path" segment
+        if (uri.scheme?.lowercase() == CUSTOM_SCHEME) {
+            uri.host?.let { if (it.isNotBlank()) segments.add(it) }
+        }
+
+        // Add actual path segments
+        segments.addAll(uri.pathSegments.filter { it.isNotBlank() })
+
+        return segments
+    }
+
+    private fun getQueryParams(uri: Uri): Map<String, String> {
+        val params = mutableMapOf<String, String>()
+        uri.queryParameterNames.forEach { name ->
+            uri.getQueryParameter(name)?.let { value ->
+                params[name.lowercase()] = value
+            }
+        }
+        return params
+    }
+
+    private fun parseDate(value: String?): LocalDate? {
+        if (value.isNullOrBlank()) return null
+
+        return try {
+            LocalDate.parse(value, dateFormatter)
+        } catch (e: DateTimeParseException) {
+            Log.w(TAG, "Failed to parse date: $value", e)
+            null
+        }
+    }
+
+    private fun parseDateTime(value: String?): LocalDateTime? {
+        if (value.isNullOrBlank()) return null
+
+        return try {
+            LocalDateTime.parse(value, dateTimeFormatter)
+        } catch (e: DateTimeParseException) {
+            // Try date-only format
+            parseDate(value)?.atStartOfDay()
+        }
+    }
+}

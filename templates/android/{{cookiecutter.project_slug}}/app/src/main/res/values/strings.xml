@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">{{ cookiecutter.project_name }}</string>
+
+    <!-- Splash Screen -->
+    <string name="splash_powered_by">Powered by {{ cookiecutter.project_name }}</string>
+
+    <!-- Force Update Screen -->
+    <string name="force_update_title">업데이트가 필요합니다</string>
+    <string name="force_update_description">최신 버전(%1$s)으로 업데이트 후 이용해주세요.\n현재 버전: %2$s</string>
+    <string name="force_update_button">업데이트 하러 가기</string>
+
+    <!-- Error Screen -->
+    <string name="error_title">오류가 발생했습니다</string>
+    <string name="error_retry_button">다시 시도</string>
+
+    <!-- Loading Messages -->
+    <string name="loading_config">Loading configuration…</string>
+    <string name="loading_analytics">Initializing analytics…</string>
+    <string name="loading_ready">Ready!</string>
+</resources>
+

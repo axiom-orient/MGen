@@ -1,0 +1,117 @@
+import Foundation
+import SQLiteData
+import GRDB
+import Dependencies
+import DailyAction
+import AppDataServiceInterface
+import OSLog
+
+// MARK: - AppData Service Implementation
+
+private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "AppDataService")
+
+// MARK: - SQLite Record Definition
+
+public struct DailyActionRecord: Codable, FetchableRecord, PersistableRecord, TableRecord, Identifiable {
+    public static let databaseTableName = "daily_actions"
+    
+    public var id: UUID
+    public var title: String
+    public var isCompleted: Bool
+    public var createdAt: Date
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case isCompleted = "is_completed"
+        case createdAt = "created_at"
+    }
+}
+
+// MARK: - Record Conversion
+
+extension DailyActionRecord {
+    init(from action: DailyAction) {
+        self.id = action.id
+        self.title = action.title
+        self.isCompleted = action.isCompleted
+        self.createdAt = action.createdAt
+    }
+    
+    func toDomain() -> DailyAction {
+        DailyAction(
+            id: id,
+            title: title,
+            isCompleted: isCompleted,
+            createdAt: createdAt
+        )
+    }
+}
+
+// MARK: - Database Configuration
+
+enum AppDataDatabase {
+    static func prepare(_ database: DatabaseWriter) throws {
+        try database.write { db in
+            try db.create(table: "daily_actions", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("is_completed", .boolean).notNull().defaults(to: false)
+                t.column("created_at", .datetime).notNull()
+            }
+        }
+        logger.info("✅ Database tables prepared")
+    }
+    
+    static var defaultURL: URL {
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documentsPath.appendingPathComponent("{{ name | lowercase }}_data.sqlite")
+    }
+}
+
+// MARK: - Repository Implementation
+
+public struct DailyActionRepositoryLive: DailyActionRepository {
+    private let database: DatabaseQueue
+    
+    public init() {
+        do {
+            let url = AppDataDatabase.defaultURL
+            self.database = try DatabaseQueue(path: url.path)
+            try AppDataDatabase.prepare(self.database)
+        } catch {
+            logger.error("❌ Failed to open database: \(error.localizedDescription)")
+            fatalError("Cannot open AppData database: \(error)")
+        }
+    }
+    
+    public func fetchAll() async throws -> [DailyAction] {
+        try await database.read { db in
+            let records = try DailyActionRecord.fetchAll(db)
+            return records.map { $0.toDomain() }
+        }
+    }
+    
+    public func add(_ action: DailyAction) async throws {
+        try await database.write { db in
+            let record = DailyActionRecord(from: action)
+            try record.insert(db)
+        }
+        logger.debug("Added action: \(action.title)")
+    }
+    
+    public func update(_ action: DailyAction) async throws {
+        try await database.write { db in
+            let record = DailyActionRecord(from: action)
+            try record.update(db)
+        }
+        logger.debug("Updated action: \(action.id)")
+    }
+    
+    public func delete(_ id: UUID) async throws {
+        try await database.write { db in
+            try DailyActionRecord.deleteOne(db, key: id)
+        }
+        logger.debug("Deleted action: \(id)")
+    }
+}

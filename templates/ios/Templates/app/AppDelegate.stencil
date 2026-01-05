@@ -1,0 +1,157 @@
+#if canImport(UIKit)
+import UIKit
+import OSLog
+
+#if canImport(FirebaseCore)
+import FirebaseCore
+#endif
+#if canImport(FirebaseCrashlytics)
+import FirebaseCrashlytics
+#endif
+#if canImport(FirebaseRemoteConfig)
+import FirebaseRemoteConfig
+#endif
+
+@MainActor
+final class AppDelegate: NSObject, UIApplicationDelegate, ObservableObject {
+  private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name }}", category: "AppDelegate")
+  var deepLinkStore: DeepLinkStore?
+
+  override init() {
+    super.init()
+    #if canImport(FirebaseCore)
+    configureFirebaseIfNeeded(context: "AppDelegate.init")
+    #endif
+  }
+
+  func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    logger.info("Application did finish launching")
+    #if canImport(FirebaseCore)
+    configureFirebaseIfNeeded(context: "AppDelegate.didFinishLaunching")
+    #endif
+    if let url = launchOptions?[.url] as? URL {
+      publishDeepLink(url)
+    }
+    return true
+  }
+
+  func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    logger.debug("Opened URL: \(url.absoluteString, privacy: .public)")
+    publishDeepLink(url)
+    return true
+  }
+
+  func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+          let url = userActivity.webpageURL else {
+      return false
+    }
+    logger.debug("Universal link received: \(url.absoluteString, privacy: .public)")
+    publishDeepLink(url)
+    return true
+  }
+}
+
+extension AppDelegate {
+  func configure(deepLinkStore: DeepLinkStore) {
+    self.deepLinkStore = deepLinkStore
+  }
+
+  private func publishDeepLink(_ url: URL) {
+    deepLinkStore?.publish(url)
+  }
+}
+
+#if canImport(FirebaseCore)
+private extension AppDelegate {
+  func configureFirebaseIfNeeded(context: String) {
+    let isFreshConfiguration: Bool
+    if let app = FirebaseApp.app() {
+      logger.debug("Firebase already configured during \(context, privacy: .public) (name: \(app.name, privacy: .public))")
+      isFreshConfiguration = false
+    } else {
+      logger.info("Configuring Firebase during \(context, privacy: .public)")
+
+      // Check if GoogleService-Info.plist exists and is valid
+      guard let plistPath = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+            let plistData = FileManager.default.contents(atPath: plistPath),
+            let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
+            plist["PLACEHOLDER"] == nil,  // Check it's not a placeholder
+            plist["GOOGLE_APP_ID"] != nil else {
+        logger.warning("⚠️ GoogleService-Info.plist not found or is placeholder. Firebase features disabled.")
+        logger.info("ℹ️ To enable Firebase: Add real GoogleService-Info.plist from Firebase Console to Projects/App/Resources/")
+        return
+      }
+
+      FirebaseApp.configure()
+      guard let configuredApp = FirebaseApp.app() else {
+        logger.error("Firebase configuration failed during \(context, privacy: .public)")
+        return
+      }
+      logger.info("Firebase configured successfully during \(context, privacy: .public) (name: \(configuredApp.name, privacy: .public))")
+      isFreshConfiguration = true
+    }
+
+    #if canImport(FirebaseRemoteConfig)
+    if isFreshConfiguration {
+      configureRemoteConfigDefaults()
+    }
+    #endif
+
+    #if canImport(FirebaseCrashlytics)
+    if FirebaseApp.app() != nil {
+      Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(true)
+      logger.debug("Crashlytics collection explicitly enabled")
+    } else {
+      logger.warning("Crashlytics disabled: FirebaseApp not configured.")
+    }
+    #endif
+  }
+
+  #if canImport(FirebaseRemoteConfig)
+  func configureRemoteConfigDefaults() {
+    logger.info("🔧 Configuring RemoteConfig in AppDelegate (main thread)")
+
+    let remoteConfig = RemoteConfig.remoteConfig()
+
+    let beforeSettings = remoteConfig.configSettings
+    logger.info("🔧 RemoteConfig BEFORE AppDelegate config: fetchTimeout=\(beforeSettings.fetchTimeout, privacy: .public)s, minimumFetchInterval=\(beforeSettings.minimumFetchInterval, privacy: .public)s")
+
+    let settings = RemoteConfigSettings()
+    settings.fetchTimeout = 60
+    settings.minimumFetchInterval = 0
+    remoteConfig.configSettings = settings
+
+    let afterSettings = remoteConfig.configSettings
+    logger.info("🔧 RemoteConfig AFTER AppDelegate config: fetchTimeout=\(afterSettings.fetchTimeout, privacy: .public)s, minimumFetchInterval=\(afterSettings.minimumFetchInterval, privacy: .public)s")
+
+    guard
+      let url = Bundle.main.url(forResource: "RemoteConfigDefaults", withExtension: "plist"),
+      let data = try? Data(contentsOf: url),
+      let defaults = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: NSObject]
+    else {
+      logger.warning("🔧 RemoteConfigDefaults.plist not found or invalid")
+      return
+    }
+
+    logger.info("🔧 Setting \(defaults.keys.count, privacy: .public) default values from plist: \(defaults.keys.sorted().joined(separator: ", "), privacy: .public)")
+    remoteConfig.setDefaults(defaults)
+
+    let defaultKeys = remoteConfig.allKeys(from: .default)
+    logger.info("🔧 RemoteConfig defaults after setDefaults: \(defaultKeys.count, privacy: .public) keys = [\(defaultKeys.sorted().joined(separator: ", "), privacy: .public)]")
+  }
+  #endif
+}
+#endif
+#endif

@@ -1,0 +1,270 @@
+import Foundation
+import SwiftUI
+import OSLog
+import ComposableArchitecture
+import Dependencies
+import DependenciesMacros
+
+// MARK: - Startup Result
+
+public enum StartupResult: Equatable, Sendable {
+    case ready
+    case maintenance(message: String)
+    case forceUpdate(minimumVersion: String)
+    case error(message: String)
+}
+
+// MARK: - Application Lifecycle Reducer
+
+@Reducer
+public struct ApplicationLifecycle {
+    @Dependency(\.lifecycleService) private var lifecycleService
+    @Dependency(\.remoteConfigService) private var remoteConfigService
+    @Dependency(\.analyticsService) private var analyticsService
+    @Dependency(\.updateChecker) private var updateChecker
+    @Dependency(\.appState) private var appState
+
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "Lifecycle")
+
+    @ObservableState
+    public struct State: Equatable, Sendable {
+        public var phase: ScenePhase = .inactive
+        public var isColdStartComplete = false
+        public var isRemoteConfigLoaded = false
+        public var analyticsConfigured = false
+        public var lastStartupError: String?
+        public var isValidating = false
+        public var isSplashAnimationComplete = false
+        public var isValidationComplete = false
+
+        public init() {}
+        
+        /// Ready to transition when both splash and validation are complete
+        public var isReadyToTransition: Bool {
+            isSplashAnimationComplete && isValidationComplete
+        }
+    }
+
+    @CasePathable
+    public enum Action: Sendable, Equatable {
+        case view(ViewAction)
+        case `internal`(InternalAction)
+        case delegate(DelegateAction)
+    }
+
+    public enum ViewAction: Sendable, Equatable {
+        case initialize
+        case retry
+        case scenePhaseChanged(ScenePhase)
+        case splashAnimationCompleted
+    }
+
+    public enum InternalAction: Sendable, Equatable {
+        case validationFinished(StartupResult)
+        case remoteConfigFetched(success: Bool)
+        case analyticsConfigured
+    }
+
+    public enum DelegateAction: Sendable, Equatable {
+        case startupResult(StartupResult)
+        case showSplash
+    }
+
+    public init() {}
+
+    public var body: some ReducerOf<Self> {
+        Reduce { state, action in
+            switch action {
+            // MARK: - Initialize (Cold Start)
+            case .view(.initialize):
+                state.isColdStartComplete = false
+                state.lastStartupError = nil
+                state.isRemoteConfigLoaded = false
+                state.isValidating = true
+                state.isValidationComplete = false
+                state.isSplashAnimationComplete = false
+                logger.info("🚀 Starting cold start sequence")
+                
+                return .run { send in
+                    await lifecycleService.initialize()
+                    await performValidation(send: send, isFirstLaunch: true)
+                }
+
+            // MARK: - Retry (from error/maintenance screen)
+            case .view(.retry):
+                logger.info("🔄 Retrying validation")
+                state.lastStartupError = nil
+                state.isValidating = true
+                state.isValidationComplete = false
+                
+                return .run { send in
+                    await performValidation(send: send, isFirstLaunch: false)
+                }
+
+            // MARK: - Splash Animation Completed
+            case .view(.splashAnimationCompleted):
+                state.isSplashAnimationComplete = true
+                logger.debug("✨ Splash animation completed")
+                
+                // If validation is also complete, we're ready
+                if state.isValidationComplete {
+                    return .send(.delegate(.startupResult(.ready)))
+                }
+                return .none
+
+            // MARK: - Scene Phase Changed
+            case let .view(.scenePhaseChanged(phase)):
+                let previousPhase = state.phase
+                state.phase = phase
+                
+                switch phase {
+                case .active where previousPhase == .background:
+                    // Returning from background
+                    logger.debug("📱 App moved to foreground")
+                    return .run { send in
+                        let isCacheValid = await appState.isCacheValid()
+                        
+                        if isCacheValid {
+                            // Cache is valid - just check current values
+                            logger.debug("✅ Cache is valid, checking current state")
+                            await checkCurrentState(send: send)
+                        } else {
+                            // Cache expired - need to re-fetch, show splash
+                            logger.info("⏰ Cache expired, re-fetching remote config")
+                            await send(.delegate(.showSplash))
+                            await performValidation(send: send, isFirstLaunch: false)
+                        }
+                        
+                        await lifecycleService.handleForeground()
+                    }
+                    
+                case .background:
+                    logger.debug("📱 App moved to background")
+                    return .run { _ in await lifecycleService.handleBackground() }
+                    
+                default:
+                    return .none
+                }
+
+            // MARK: - Remote Config Fetched
+            case let .internal(.remoteConfigFetched(success)):
+                state.isRemoteConfigLoaded = success
+                return .none
+
+            // MARK: - Validation Finished
+            case let .internal(.validationFinished(result)):
+                state.isValidating = false
+                state.isValidationComplete = true
+                state.isColdStartComplete = true
+                
+                switch result {
+                case .ready:
+                    logger.info("✅ Validation passed")
+                case let .maintenance(message):
+                    logger.warning("🔧 Maintenance mode: \(message)")
+                case let .forceUpdate(version):
+                    logger.warning("⬆️ Force update required: \(version)")
+                case let .error(message):
+                    state.lastStartupError = message
+                    logger.error("❌ Validation error: \(message)")
+                }
+                
+                // If splash is also complete, delegate immediately
+                if state.isSplashAnimationComplete || result != .ready {
+                    return .send(.delegate(.startupResult(result)))
+                }
+                return .none
+
+            case .internal(.analyticsConfigured):
+                state.analyticsConfigured = true
+                return .none
+
+            case .delegate:
+                return .none
+            }
+        }
+    }
+
+    // MARK: - Private Methods
+
+    /// Perform full validation sequence
+    private func performValidation(send: Send<Action>, isFirstLaunch: Bool) async {
+        let hasCachedConfig = await appState.hasCachedRemoteConfig()
+        let isCacheValid = await appState.isCacheValid()
+        
+        // Step 1: Fetch Remote Config
+        var fetchSuccess = false
+        do {
+            try await remoteConfigService.fetchAndActivate()
+            await appState.syncFromRemoteConfig(remoteConfigService)
+            await send(.internal(.remoteConfigFetched(success: true)))
+            fetchSuccess = true
+            logger.info("✅ Remote config fetched and synced")
+        } catch {
+            logger.warning("⚠️ Remote config fetch failed: \(error.localizedDescription)")
+            await send(.internal(.remoteConfigFetched(success: false)))
+            
+            // Decide what to do based on cache state
+            if isFirstLaunch && !hasCachedConfig {
+                // Q4: First launch + no network → use defaults
+                logger.info("📱 First launch with no network, using defaults")
+                fetchSuccess = true // Proceed with defaults
+            } else if !isCacheValid && hasCachedConfig {
+                // Q1: Expired cache + network fail → error
+                logger.error("❌ Cache expired and network failed")
+                await send(.internal(.validationFinished(.error(message: "네트워크 연결을 확인하고 다시 시도해주세요."))))
+                return
+            } else if isCacheValid {
+                // Valid cache exists → use it
+                logger.info("✅ Using valid cached config")
+                fetchSuccess = true
+            }
+        }
+        
+        guard fetchSuccess else { return }
+        
+        // Step 2: Check Maintenance Mode (highest priority)
+        let isMaintenanceMode = await appState.isMaintenanceMode()
+        if isMaintenanceMode {
+            let message = await appState.localizedMaintenanceMessage()
+            await send(.internal(.validationFinished(.maintenance(message: message.isEmpty ? "서버 점검 중입니다." : message))))
+            return
+        }
+        
+        // Step 3: Check Force Update
+        let minimumVersion = await appState.forceUpdateMinimumVersion()
+        let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        
+        if !minimumVersion.isEmpty && updateChecker.isUpdateRequired(currentVersion: currentVersion, minimumVersion: minimumVersion) {
+            await send(.internal(.validationFinished(.forceUpdate(minimumVersion: minimumVersion))))
+            return
+        }
+        
+        // Step 4: Initialize Analytics
+        // Step 4: Initialize Analytics
+        // Analytics is always enabled by default
+        await send(.internal(.analyticsConfigured))
+        
+        // Step 5: Ready
+        await send(.internal(.validationFinished(.ready)))
+    }
+    
+    /// Check current state using cached values (for foreground return with valid cache)
+    private func checkCurrentState(send: Send<Action>) async {
+        // Check Maintenance Mode
+        let isMaintenanceMode = await appState.isMaintenanceMode()
+        if isMaintenanceMode {
+            let message = await appState.localizedMaintenanceMessage()
+            await send(.delegate(.startupResult(.maintenance(message: message.isEmpty ? "서버 점검 중입니다." : message))))
+            return
+        }
+        
+        // Check Force Update
+        let minimumVersion = await appState.forceUpdateMinimumVersion()
+        let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        
+        if !minimumVersion.isEmpty && updateChecker.isUpdateRequired(currentVersion: currentVersion, minimumVersion: minimumVersion) {
+            await send(.delegate(.startupResult(.forceUpdate(minimumVersion: minimumVersion))))
+        }
+    }
+}

@@ -1,0 +1,20 @@
+package {{ base_package }}.domain.{{ domain_name_lower }}.usecase
+
+import {{ base_package }}.domain.{{ domain_name_lower }}.model.{{ domain_name }}
+import {{ base_package }}.domain.{{ domain_name_lower }}.repository.{{ domain_name }}Repository
+import kotlinx.coroutines.flow.Flow
+import javax.inject.Inject
+
+/**
+ * Use case to get all {{ domain_name }} items
+ */
+/**
+ * Use case to get all {{ domain_name }} items
+ */
+public class Get{{ domain_name }}UseCase @Inject constructor(
+    private val repository: {{ domain_name }}Repository
+) {
+    public operator fun invoke(): Flow<List<{{ domain_name }}>> {
+        return repository.getAll()
+    }
+}

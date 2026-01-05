@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>force_update_min_version</key>
+    <string>1.0.0</string>
+    <key>maintenance_mode_enabled</key>
+    <false/>
+    <key>welcome_message</key>
+    <string>{"ko":"당신의 시간, 더 가치있게","en":"Glad you're here! Let's make today amazing.","ja":"ようこそ！今日も素敵な一日になりますように。","zh-CN":"很高兴遇见你，开启你的美好时光吧！","zh-TW":"遇見你真好，今天要一起創造美好回憶嗎？","es":"¡Qué bueno verte! Tu presencia nos alegra el día.","vi":"Thật tuyệt khi gặp bạn! Chúc bạn một ngày rạng rỡ.","th":"ดีใจที่ได้พบคุณ มาเริ่มช่วงเวลาดีๆ กันเถอะ","fr":"Ravi de vous voir ! Prêt pour un moment d'exception ?"}</string>
+    <key>maintenance_message</key>
+    <string>{"ko":"약속한 시간까지 최고의 환경을 만들어 놓겠습니다. [00:00]에 다시 만나요!","en":"We're fine-tuning everything for your best experience. See you again at [00:00]!","ja":"より快適な環境を整えております。[00:00]にまたお会いしましょう！","zh-CN":"为了给您提供更好的体验，我们正在优化系统。期待在 [00:00] 与您再次见面！","zh-TW":"為了提供更優質的服務，我們正全力整備中。期待在 [00:00] 與您再次相見！","es":"Estamos mejorando todo para brindarte la mejor experiencia. ¡Nos vemos a las [00:00]!","vi":"Chúng tôi đang hoàn thiện dịch vụ tốt nhất dành cho bạn. Hẹn gặp lại vào lúc [00:00]!","th":"เรากำลังเตรียมระบบให้พร้อมที่สุดเพื่อคุณ แล้วพบกันใหม่ตอน [00:00] น. นะคะ/ครับ","fr":"Nous préparons le meilleur pour vous. Rendez-vous à [00:00] pour une expérience optimale !"}</string>
+</dict>
+</plist>

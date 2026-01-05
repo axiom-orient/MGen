@@ -1,0 +1,31 @@
+import Foundation
+import {{ name }}Interface
+import {{ name }}InterfaceKeys
+
+// MARK: - {{ name }} Module
+
+// This is the main module file for {{ name }}.
+// Component implementations are organized in separate files:
+// - PublishedUserDefaults.swift: Property wrappers for UserDefaults
+// - NetworkMonitor.swift: Network connectivity monitoring
+// - KeychainStorage.swift: Secure keychain-based storage
+// - AnySendableError.swift: Sendable error wrapper
+
+// TODO: Add module-level utilities or re-exports here if needed
+// Example:
+// @_exported import Combine  // Re-export Combine for all consumers
+
+// MARK: - Module Information
+
+/// {{ name }} module metadata
+public enum {{ name }}Module {
+    /// Module version
+    public static let version = "1.0.0"
+
+    /// Module identifier
+    public static let identifier = "{{ bundleIdPrefix }}.{{ name }}"
+}
+
+// TODO: Add your custom shared utilities below
+// - For SharedCore: Common extensions, helpers, utilities
+// - For DesignSystem: Custom views, modifiers, style helpers

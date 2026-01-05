@@ -1,0 +1,217 @@
+package {{ cookiecutter.base_package }}
+
+import android.content.Intent
+import android.os.Bundle
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import {{ cookiecutter.base_package }}.core.ui.theme.TmaTheme
+import {{ cookiecutter.base_package }}.deeplink.DeepLinkParser
+import {{ cookiecutter.base_package }}.lifecycle.AppLifecycleManager
+import {{ cookiecutter.base_package }}.lifecycle.AppStartupState
+import {{ cookiecutter.base_package }}.ui.ErrorScreen
+import {{ cookiecutter.base_package }}.ui.ForceUpdateScreen
+import {{ cookiecutter.base_package }}.ui.MaintenanceScreen
+import {{ cookiecutter.base_package }}.ui.SplashScreen
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+
+/*
+ * ============================================================
+ * 🔧 앱별 커스터마이징 가이드 (Per-App Customization Guide)
+ * ============================================================
+ *
+ * 새 앱 생성 시 수정이 필요한 파일들:
+ *
+ * 📌 필수 수정 (Must Modify)
+ * ─────────────────────────────────────────────────────────────
+ * 1. ui/MainScreen (이 파일 하단)  - 메인 화면 UI 구현
+ * 2. ui/SplashScreen.kt           - 스플래시 로고, 브랜딩
+ * 3. res/values/strings.xml       - 앱 이름 및 문자열
+ *
+ * 📌 선택적 수정 (Optional)
+ * ─────────────────────────────────────────────────────────────
+ * 4. AppState.kt                  - selectedTabIndex 기본값 (탭 수에 맞게)
+ * 5. deeplink/DeepLinkRoute.kt    - 앱별 딥링크 경로 추가
+ * 6. RemoteConfigKeys             - 커스텀 Remote Config 키 추가
+ * 7. AppConstants.kt              - 앱 상수 커스터마이징
+ *
+ * ℹ️ 자동 설정됨 (Auto-configured)
+ * ─────────────────────────────────────────────────────────────
+ * - PACKAGE_NAME (build.gradle의 applicationId에서 자동 설정)
+ * - Play Store URL (packageName 기반 자동 생성)
+ *
+ * 📦 수정 불필요 (Template Core - Do Not Modify)
+ * ─────────────────────────────────────────────────────────────
+ * - lifecycle/AppLifecycleManager.kt  (Lifecycle orchestration)
+ * - lifecycle/UpdateChecker.kt        (Version comparison logic)
+
+ * - RemoteConfigRepository.kt         (Firebase integration)
+ *
+ * ============================================================
+ */
+
+/**
+ * Main Activity with lifecycle-aware startup sequence.
+ * Android equivalent of iOS App + AppDelegate pattern.
+ */
+@AndroidEntryPoint
+public class MainActivity : ComponentActivity() {
+
+    @Inject
+    public lateinit var appState: AppState
+
+    @Inject
+    public lateinit var deepLinkParser: DeepLinkParser
+
+    @Inject
+    lateinit var lifecycleManager: AppLifecycleManager
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
+        // Initialize cold start sequence
+        lifecycleManager.initialize()
+
+        // Handle deep link from launch intent
+        handleDeepLink(intent)
+
+        setContent {
+            val startupState by lifecycleManager.startupState.collectAsStateWithLifecycle()
+            val lifecycleOwner = LocalLifecycleOwner.current
+
+            // Handle foreground/background transitions
+            LaunchedEffect(lifecycleOwner) {
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    lifecycleManager.onForeground()
+                }
+            }
+
+            TmaTheme(darkTheme = isSystemInDarkTheme()) {
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    AppContent(
+                        startupState = startupState,
+                        onRetry = { lifecycleManager.retry() },
+                        modifier = Modifier.padding(innerPadding)
+                    )
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        lifecycleManager.onBackground()
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        intent?.data?.let { uri ->
+            if (DeepLinkParser.isValidDeepLink(uri)) {
+                val route = DeepLinkParser.parse(uri)
+                Log.d(TAG, "Received deep link: $uri -> $route")
+                // TODO: Navigate to route when app is ready
+            }
+        }
+    }
+}
+
+/**
+ * App content with startup state-based routing.
+ */
+@Composable
+private fun AppContent(
+    startupState: AppStartupState,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    when (startupState) {
+        is AppStartupState.Splash,
+        is AppStartupState.Loading -> {
+            SplashScreen(
+                startupState = startupState,
+                modifier = modifier
+            )
+        }
+
+        is AppStartupState.Maintenance -> {
+            MaintenanceScreen(
+                state = startupState,
+                onRefresh = onRetry,
+                modifier = modifier
+            )
+        }
+
+        is AppStartupState.Error -> {
+            ErrorScreen(
+                state = startupState,
+                onRetry = onRetry,
+                modifier = modifier
+            )
+        }
+
+        is AppStartupState.ForceUpdate -> {
+            ForceUpdateScreen(
+                state = startupState,
+                modifier = modifier
+            )
+        }
+
+        is AppStartupState.Ready -> {
+            MainScreen(modifier = modifier)
+        }
+    }
+}
+
+/**
+ * Main screen content shown after successful startup.
+ */
+@Composable
+fun MainScreen(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "Welcome to {{ cookiecutter.project_name }}!",
+            style = MaterialTheme.typography.headlineMedium
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun MainScreenPreview() {
+    TmaTheme {
+        MainScreen()
+    }
+}

@@ -1,0 +1,14 @@
+package {{ base_package }}.domain.{{ domain_name_lower }}.repository
+
+import {{ base_package }}.domain.{{ domain_name_lower }}.model.{{ domain_name }}
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * Repository interface for {{ domain_name }}
+ */
+public interface {{ domain_name }}Repository {
+    public fun getAll(): Flow<List<{{ domain_name }}>>
+    public suspend fun getById(id: String): {{ domain_name }}?
+    public suspend fun save(item: {{ domain_name }})
+    public suspend fun delete(id: String)
+}

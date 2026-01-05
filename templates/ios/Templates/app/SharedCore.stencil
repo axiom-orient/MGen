@@ -1,0 +1,17 @@
+// SharedCore.swift
+// Core shared utilities and types for {{ name }}
+
+import Foundation
+import ComposableArchitecture
+import Dependencies
+
+// MARK: - SharedCore Module
+// This module provides shared utilities used across the application:
+// - AnySendableError: Type-erased sendable error wrapper
+// - KeychainStorage: Secure keychain storage wrapper
+// - NetworkMonitor: Network connectivity monitoring
+// - PublishedUserDefaults: UserDefaults property wrapper with Combine support
+
+public enum SharedCore {
+    // Module marker - utilities are in Components/
+}

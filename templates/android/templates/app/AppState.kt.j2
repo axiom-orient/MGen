@@ -1,0 +1,351 @@
+package {{ cookiecutter.base_package }}
+
+import android.content.Context
+import android.util.Log
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
+import {{ cookiecutter.base_package }}.core.network.NetworkMonitor
+import {{ cookiecutter.base_package }}.core.network.NetworkStatus
+import {{ cookiecutter.base_package }}.core.remoteconfig.LocalizedRemoteConfig
+import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigKeys
+import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * DataStore preferences extension for Application context.
+ */
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_state")
+
+/**
+ * Centralized app state manager.
+ *
+ * Manages both volatile (in-memory) and persistent (DataStore Preferences) state.
+ * Uses Kotlin StateFlow for reactive state management.
+ *
+ * **Design Philosophy:**
+ * - Mirrors iOS swift-sharing pattern for platform parity
+ * - Uses Jetpack DataStore for type-safe, async persistence
+ * - Exposes persistent state as Flow for reactive consumption
+ *
+ * Usage:
+ * ```kotlin
+ * // Access via Hilt injection
+ * @Inject lateinit var appState: AppState
+ *
+ * // Read volatile state
+ * val tabIndex = appState.selectedTabIndex.value
+ *
+ * // Update volatile state
+ * appState.setSelectedTabIndex(1)
+ *
+ * // Read persistent state (as Flow)
+ * viewModel.viewModelScope.launch {
+ *     appState.forceUpdateMinimumVersion.collect { version ->
+ *         // Handle version changes
+ *     }
+ * }
+ *
+ * // Sync from Remote Config
+ * viewModel.viewModelScope.launch {
+ *     appState.syncFromRemoteConfig(remoteConfigRepository)
+ * }
+ * ```
+ */
+@Singleton
+class AppState @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val networkMonitor: NetworkMonitor,
+    private val localizedRemoteConfig: LocalizedRemoteConfig
+) {
+    private val dataStore = context.dataStore
+    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    companion object {
+        private const val TAG = "AppState"
+
+        // DataStore keys
+        private object PrefsKeys {
+            val FORCE_UPDATE_MIN_VERSION = stringPreferencesKey("forceUpdateMinVersion")
+            val MAINTENANCE_MODE = booleanPreferencesKey("maintenanceMode")
+            val MAINTENANCE_MESSAGE = stringPreferencesKey("maintenanceMessage")
+            val WELCOME_MESSAGE = stringPreferencesKey("welcomeMessage")
+            val LAST_REMOTE_CONFIG_SYNC = longPreferencesKey("lastRemoteConfigSync")
+            val IS_FIRST_LAUNCH_COMPLETE = booleanPreferencesKey("isFirstLaunchComplete")
+            val USER_LANGUAGE_CODE = stringPreferencesKey("userLanguageCode")
+            val USER_ID = stringPreferencesKey("userId")
+            val IS_LOGGED_IN = booleanPreferencesKey("isLoggedIn")
+            val THEME_MODE = stringPreferencesKey("themeMode")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 🔧 Customize Per App - Volatile State (In-Memory Only)
+    // ══════════════════════════════════════════════════════════════
+
+    private val _selectedTabIndex = MutableStateFlow(0)
+    val selectedTabIndex: StateFlow<Int> = _selectedTabIndex.asStateFlow()
+
+    private val _isShowingOnboarding = MutableStateFlow(false)
+    val isShowingOnboarding: StateFlow<Boolean> = _isShowingOnboarding.asStateFlow()
+
+    private val _lastViewedScreen = MutableStateFlow("")
+    val lastViewedScreen: StateFlow<String> = _lastViewedScreen.asStateFlow()
+
+    private val _isInForeground = MutableStateFlow(true)
+    val isInForeground: StateFlow<Boolean> = _isInForeground.asStateFlow()
+
+    private val _latestStoreVersionCode = MutableStateFlow<Int?>(null)
+    val latestStoreVersionCode: StateFlow<Int?> = _latestStoreVersionCode.asStateFlow()
+
+    fun setSelectedTabIndex(index: Int) {
+        _selectedTabIndex.value = index
+    }
+
+    fun setShowingOnboarding(showing: Boolean) {
+        _isShowingOnboarding.value = showing
+    }
+
+    fun setLastViewedScreen(screen: String) {
+        _lastViewedScreen.value = screen
+    }
+
+    fun setInForeground(inForeground: Boolean) {
+        _isInForeground.value = inForeground
+    }
+
+    public fun setLatestStoreVersionCode(versionCode: Int?) {
+        _latestStoreVersionCode.value = versionCode
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 📦 Template Core - Persistent State (DataStore Preferences)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Force update minimum version (Flow-based reactive access).
+     * Matches iOS @Shared(.appStorage(...)) pattern.
+     */
+    public val forceUpdateMinimumVersion: Flow<String> = dataStore.data.map { prefs ->
+        prefs[PrefsKeys.FORCE_UPDATE_MIN_VERSION] ?: ""
+    }
+
+    public val isMaintenanceMode: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[PrefsKeys.MAINTENANCE_MODE] ?: false
+    }
+
+    public val maintenanceMessage: Flow<String> = dataStore.data.map { prefs ->
+        prefs[PrefsKeys.MAINTENANCE_MESSAGE] ?: ""
+    }
+
+    public val welcomeMessage: Flow<String> = dataStore.data.map { prefs ->
+        prefs[PrefsKeys.WELCOME_MESSAGE] ?: ""
+    }
+
+    public val lastRemoteConfigSyncTimestamp: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[PrefsKeys.LAST_REMOTE_CONFIG_SYNC] ?: 0L
+    }
+
+    public val userLanguageCode: Flow<String> = dataStore.data.map { prefs ->
+        prefs[PrefsKeys.USER_LANGUAGE_CODE] ?: run {
+            // Initialize from device language on first access
+            val deviceLanguage = context.resources.configuration.locales[0].language
+            Log.i(TAG, "Initialized user language: $deviceLanguage")
+            deviceLanguage
+        }
+    }
+
+    // StateFlows for reactive UI updates
+    // Explicitly exposing Flow types
+    public val userId: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[PrefsKeys.USER_ID]
+    }
+
+    public val isLoggedIn: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[PrefsKeys.IS_LOGGED_IN] ?: false
+    }
+
+    public val themeMode: Flow<String> = dataStore.data.map { preferences ->
+        preferences[PrefsKeys.THEME_MODE] ?: "system"
+    }
+
+    public val isNetworkAvailable: Flow<Boolean> = networkMonitor.networkStatus
+        .map { it == NetworkStatus.AVAILABLE }
+        .stateIn(coroutineScope, SharingStarted.Eagerly, false)
+
+    // Helper functions with explicit return types
+    public suspend fun setUserId(id: String) {
+        dataStore.edit { preferences ->
+            preferences[PrefsKeys.USER_ID] = id
+        }
+    }
+
+    public suspend fun setLoggedIn(loggedIn: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PrefsKeys.IS_LOGGED_IN] = loggedIn
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Synchronous accessors (for non-coroutine contexts)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Get force update minimum version synchronously.
+     * Use sparingly - prefer Flow-based access.
+     */
+    fun getForceUpdateMinimumVersionSync(): String = runBlocking {
+        forceUpdateMinimumVersion.first()
+    }
+
+    fun getIsMaintenanceModeSync(): Boolean = runBlocking {
+        isMaintenanceMode.first()
+    }
+
+    fun getMaintenanceMessageSync(): String = runBlocking {
+        maintenanceMessage.first()
+    }
+
+    fun getWelcomeMessageSync(): String = runBlocking {
+        welcomeMessage.first()
+    }
+
+    fun getLastRemoteConfigSyncTimestampSync(): Long = runBlocking {
+        lastRemoteConfigSyncTimestamp.first()
+    }
+
+    fun getUserLanguageCodeSync(): String = runBlocking {
+        userLanguageCode.first()
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 📦 Template Core - Remote Config Sync
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Sync persistent state from Remote Config values.
+     *
+     * Call this after successful Remote Config fetch to persist values locally.
+     */
+    suspend fun syncFromRemoteConfig(repository: RemoteConfigRepository) {
+        dataStore.edit { prefs ->
+            prefs[PrefsKeys.FORCE_UPDATE_MIN_VERSION] = repository.getString(RemoteConfigKeys.FORCE_UPDATE_MIN_VERSION)
+            prefs[PrefsKeys.MAINTENANCE_MODE] = repository.getBoolean(RemoteConfigKeys.MAINTENANCE_MODE_ENABLED)
+            prefs[PrefsKeys.MAINTENANCE_MESSAGE] = repository.getString(RemoteConfigKeys.MAINTENANCE_MESSAGE)
+            prefs[PrefsKeys.WELCOME_MESSAGE] = repository.getString(RemoteConfigKeys.WELCOME_MESSAGE)
+            prefs[PrefsKeys.LAST_REMOTE_CONFIG_SYNC] = System.currentTimeMillis()
+        }
+
+        Log.i(TAG, "✅ AppState synced from Remote Config")
+        Log.d(TAG, "- forceUpdateMinVersion: ${getForceUpdateMinimumVersionSync()}")
+        Log.d(TAG, "- maintenanceMode: ${getIsMaintenanceModeSync()}")
+    }
+
+    /**
+     * Set user language code.
+     */
+    suspend fun setUserLanguageCode(languageCode: String) {
+        dataStore.edit { prefs ->
+            prefs[PrefsKeys.USER_LANGUAGE_CODE] = languageCode
+        }
+    }
+
+    /**
+     * Check if cached Remote Config values exist.
+     */
+    val hasCachedRemoteConfig: Boolean
+        get() = getLastRemoteConfigSyncTimestampSync() > 0
+
+    /**
+     * Check if cache is valid (within TTL).
+     * Matches iOS behavior: 10 minute TTL.
+     */
+    val isCacheValid: Boolean
+        get() {
+            if (!hasCachedRemoteConfig) return false
+            val elapsed = System.currentTimeMillis() - getLastRemoteConfigSyncTimestampSync()
+            return elapsed < AppConstants.CACHE_TTL_MS
+        }
+
+    /**
+     * Check if this is the first launch.
+     */
+    val isFirstLaunchComplete: Boolean
+        get() = runBlocking {
+            dataStore.data.first()[PrefsKeys.IS_FIRST_LAUNCH_COMPLETE] ?: false
+        }
+
+    /**
+     * Mark first launch as complete.
+     */
+    suspend fun markFirstLaunchComplete() {
+        dataStore.edit { prefs ->
+            prefs[PrefsKeys.IS_FIRST_LAUNCH_COMPLETE] = true
+        }
+        Log.d(TAG, "First launch marked complete")
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Localized Values
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Get localized welcome message based on user's selected language.
+     */
+    suspend fun getLocalizedWelcomeMessage(): String {
+        val langCode = userLanguageCode.first()
+        val message = welcomeMessage.first()
+        return localizedRemoteConfig.localize(message, langCode)
+            ?: localizedRemoteConfig.localize(message, "en")
+            ?: ""
+    }
+
+    /**
+     * Get localized maintenance message based on user's selected language.
+     */
+    suspend fun getLocalizedMaintenanceMessage(): String {
+        val langCode = userLanguageCode.first()
+        val message = maintenanceMessage.first()
+        return localizedRemoteConfig.localize(message, langCode)
+            ?: localizedRemoteConfig.localize(message, "en")
+            ?: ""
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Reset
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Reset all volatile state to defaults.
+     */
+    fun resetVolatileState() {
+        _selectedTabIndex.value = 0
+        _isShowingOnboarding.value = false
+        _lastViewedScreen.value = ""
+        Log.d(TAG, "Volatile state reset")
+    }
+
+    /**
+     * Clear all persistent state (use with caution).
+     */
+    suspend fun clearPersistentState() {
+        dataStore.edit { prefs ->
+            prefs.clear()
+        }
+        Log.w(TAG, "⚠️ Persistent state cleared")
+    }
+}

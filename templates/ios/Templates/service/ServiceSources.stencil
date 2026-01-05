@@ -1,0 +1,33 @@
+import Foundation
+import ComposableArchitecture
+import Dependencies
+import {{ name }}ServiceInterface
+// TODO: Import other dependencies
+// Example:
+// import NetworkClient
+
+/// Live implementation of {{ name }}Service
+public struct Live{{ name }}Service: {{ name }}Service {
+
+    // MARK: - Dependencies
+
+    // TODO: Inject required dependencies
+    // Examples:
+    // private let apiClient: APIClient
+    // private let urlSession: URLSession
+    // @Dependency(\.networkClient) private var networkClient
+
+    public init() {
+        // TODO: Initialize dependencies
+    }
+
+    // MARK: - Service Implementation
+
+    // TODO: Implement service methods
+    // Example:
+    // public func fetchData(id: String) async throws -> Data {
+    //     let url = URL(string: "https://api.example.com/data/\(id)")!
+    //     let (data, _) = try await URLSession.shared.data(from: url)
+    //     return data
+    // }
+}

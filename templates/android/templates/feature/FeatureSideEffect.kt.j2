@@ -1,0 +1,9 @@
+package {{ base_package }}.feature.{{ feature_name_lower }}
+
+/**
+ * Side Effects for {{ feature_name }} (Navigation, Toast, etc.)
+ */
+public sealed interface {{ feature_name }}SideEffect {
+    public object NavigateBack : {{ feature_name }}SideEffect
+    public data class ShowError(public val message: String) : {{ feature_name }}SideEffect
+}

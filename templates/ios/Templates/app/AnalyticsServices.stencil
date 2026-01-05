@@ -1,0 +1,116 @@
+import Foundation
+import OSLog
+import ComposableArchitecture
+import Dependencies
+
+// MARK: - Analytics Service Contracts
+
+public protocol AnalyticsProvider: Sendable {
+  func logEvent(_ name: String, parameters: [String: Sendable]?) async
+  func setUserProperty(_ value: String?, forName name: String) async
+  func setUserId(_ id: String?) async
+  func logScreenView(screenName: String, screenClass: String?) async
+}
+
+public protocol AnalyticsService: Sendable {
+  func logEvent(_ name: String, parameters: [String: Sendable]?) async
+  func setUserProperty(_ value: String?, forName name: String) async
+  func setUserId(_ id: String?) async
+  func logScreenView(screenName: String, screenClass: String?) async
+  func updateEnabled(_ isEnabled: Bool) async
+}
+
+public extension AnalyticsService {
+  func updateEnabled(_ isEnabled: Bool) async {}
+}
+
+// MARK: - Composite Analytics
+
+public actor CompositeAnalyticsService: AnalyticsService {
+  private let providers: [any AnalyticsProvider]
+  private var isEnabled: Bool
+
+  public init(
+    providers: [any AnalyticsProvider] = [LoggingAnalyticsProvider()],
+    isEnabled: Bool = true
+  ) {
+    self.providers = providers
+    self.isEnabled = isEnabled
+  }
+
+  public func updateEnabled(_ isEnabled: Bool) async {
+    self.isEnabled = isEnabled
+  }
+
+  public func logEvent(_ name: String, parameters: [String: Sendable]?) async {
+    guard isEnabled else { return }
+    for provider in providers {
+      await provider.logEvent(name, parameters: parameters)
+    }
+  }
+
+  public func setUserProperty(_ value: String?, forName name: String) async {
+    guard isEnabled else { return }
+    for provider in providers {
+      await provider.setUserProperty(value, forName: name)
+    }
+  }
+
+  public func setUserId(_ id: String?) async {
+    guard isEnabled else { return }
+    for provider in providers {
+      await provider.setUserId(id)
+    }
+  }
+
+  public func logScreenView(screenName: String, screenClass: String?) async {
+    guard isEnabled else { return }
+    for provider in providers {
+      await provider.logScreenView(screenName: screenName, screenClass: screenClass)
+    }
+  }
+}
+
+// MARK: - Default Provider
+
+public struct LoggingAnalyticsProvider: AnalyticsProvider {
+  private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowerFirstWord }}", category: "Analytics")
+
+  public init() {}
+
+  public func logEvent(_ name: String, parameters: [String: Sendable]?) async {
+    if let parameters {
+      logger.debug("Tracked event \(name, privacy: .public) with parameters \(String(describing: parameters), privacy: .public)")
+    } else {
+      logger.debug("Tracked event \(name, privacy: .public)")
+    }
+  }
+
+  public func setUserProperty(_ value: String?, forName name: String) async {
+    let valueStr = value ?? "nil"
+    logger.debug("Set user property \(name, privacy: .public) to \(valueStr, privacy: .public)")
+  }
+
+  public func setUserId(_ id: String?) async {
+    let idStr = id ?? "nil"
+    logger.debug("Set user id to \(idStr, privacy: .public)")
+  }
+
+  public func logScreenView(screenName: String, screenClass: String?) async {
+    let className = screenClass ?? "nil"
+    logger.debug("Logged screen view \(screenName, privacy: .public) / \(className, privacy: .public)")
+  }
+}
+
+// MARK: - Dependency Key
+
+private enum AnalyticsServiceKey: DependencyKey {
+  static let liveValue: any AnalyticsService = CompositeAnalyticsService()
+}
+
+public extension DependencyValues {
+  var analyticsService: any AnalyticsService {
+    get { self[AnalyticsServiceKey.self] }
+    set { self[AnalyticsServiceKey.self] = newValue }
+  }
+}

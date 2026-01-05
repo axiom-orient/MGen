@@ -1,0 +1,31 @@
+import ProjectDescription
+
+let project = Project(
+    name: "DailyActionList",
+    options: .options(
+        disableBundleAccessors: true,
+        disableSynthesizedResourceAccessors: true
+    ),
+    settings: .settings(
+        base: [
+            "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
+            "ENABLE_MODULE_VERIFIER": "YES",
+            "SWIFT_STRICT_CONCURRENCY": "targeted"
+        ],
+        defaultSettings: .recommended()
+    ),
+    targets: [
+        .target(
+            name: "DailyActionList",
+            destinations: .iOS,
+            product: .framework,
+            bundleId: "{{ bundleIdPrefix }}.dailyactionlist",
+            deploymentTargets: .iOS("{{ deploymentTarget }}"),
+            sources: ["Sources/**"],
+            dependencies: [
+                .external(name: "ComposableArchitecture"),
+                .project(target: "DailyAction", path: "../../Domains/DailyAction")
+            ]
+        )
+    ]
+)

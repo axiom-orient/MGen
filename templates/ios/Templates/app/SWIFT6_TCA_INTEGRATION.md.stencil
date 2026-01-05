@@ -1,0 +1,41 @@
+# Swift 6 & TCA Integration Guide
+
+**Project**: {{ name }}
+**Generated**: {{ date }}
+
+---
+
+## ⚠️ Critical Integration Guidelines
+
+This project uses **Swift 6 Strict Concurrency** and **TCA 1.10+**.
+Misuse of concurrency features can lead to build errors or runtime crashes.
+
+### 1. AppState & Global State
+- **Pattern**: `AppState` is a singleton (`shared`) but isolated to `@MainActor`.
+- **Constraint**: You cannot access `AppState.shared` from background threads or non-isolated contexts.
+- **Solution**: Always use `Dependency(\.appStateClient)` in Reducers.
+  ```swift
+  // ❌ BAD: Direct Access
+  let version = AppState.shared.forceUpdateMinimumVersion
+
+  // ✅ GOOD: Dependency Injection
+  @Dependency(\.appStateClient) var appState
+  let version = await appState.forceUpdateMinimumVersion()
+  ```
+
+### 2. Dependencies & Sendable
+- **Rule**: All custom Dependencies must conform to `Sendable`.
+- **Reason**: TCA Actions and State move across isolation boundaries.
+- **Practice**:
+  - Structs are implicitly Sendable if properties are Sendable.
+  - Classes must be `final` and `Sendable` (atomic) or `Actor`.
+  - Closures in Clients must be `@Sendable`.
+
+### 3. Actors vs Reducers
+- **Reducers** run on the Main Actor (mostly).
+- **Services** (Actors) run in parallel.
+- **Deadlock Risk**: Do not `await` main-actor bound code synchronously inside a purely synchronous reducer scope (TCA prevents this, but be careful with `Task.sleep` or blocking calls).
+
+### 4. Codable Safety
+- `Codable` types used in Keychain/UserDefaults are checked for Sendability.
+- `KeychainStorage` is an `actor`, ensuring atomic writes. Do not fallback to raw `UserDefaults.standard` without locking if accessing from multiple threads.

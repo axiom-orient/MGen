@@ -1,0 +1,100 @@
+import Testing
+@testable import {{ name }}DomainSources
+@testable import {{ name }}DomainInterface
+
+@Suite("{{ name }} Domain Tests")
+struct {{ name }}DomainTests {
+
+    @Test("{{ name }} entity creation")
+    func entityCreation() {
+        let entity = {{ name }}(id: "test-id")
+
+        #expect(entity.id == "test-id")
+        #expect(entity.createdAt != nil)
+        #expect(entity.updatedAt != nil)
+
+        // TODO: Add more entity property assertions
+    }
+
+    @Test("{{ name }} entity equality")
+    func entityEquality() {
+        let entity1 = {{ name }}(id: "same-id")
+        let entity2 = {{ name }}(id: "same-id")
+        let entity3 = {{ name }}(id: "different-id")
+
+        #expect(entity1 == entity2)
+        #expect(entity1 != entity3)
+    }
+
+    @Test("Default{{ name }}UseCase initialization")
+    func useCaseInitialization() async throws {
+        let useCase = Default{{ name }}UseCase()
+
+        // TODO: Test use case initialization
+        // Example:
+        // let result = try await useCase.fetchAll()
+        // #expect(result.isEmpty)
+    }
+
+    @Test("UseCase fetch operation")
+    func fetchOperation() async throws {
+        let useCase = Default{{ name }}UseCase()
+
+        // TODO: Test fetch operation
+        // Example:
+        // let entity = try await useCase.fetch(id: "test-id")
+        // #expect(entity.id == "test-id")
+    }
+
+    @Test("UseCase create operation")
+    func createOperation() async throws {
+        let useCase = Default{{ name }}UseCase()
+        let entity = {{ name }}(id: "new-id")
+
+        // TODO: Test create operation
+        // Example:
+        // let created = try await useCase.create(entity)
+        // #expect(created.id == entity.id)
+    }
+
+    @Test("UseCase update operation")
+    func updateOperation() async throws {
+        let useCase = Default{{ name }}UseCase()
+        let entity = {{ name }}(id: "update-id")
+
+        // TODO: Test update operation
+        // Example:
+        // let updated = try await useCase.update(entity)
+        // #expect(updated.id == entity.id)
+    }
+
+    @Test("UseCase delete operation")
+    func deleteOperation() async throws {
+        let useCase = Default{{ name }}UseCase()
+
+        // TODO: Test delete operation
+        // Example:
+        // try await useCase.delete(id: "delete-id")
+        // await #expect(throws: {{ name }}DomainError.self) {
+        //     try await useCase.fetch(id: "delete-id")
+        // }
+    }
+
+    @Test("Domain error handling")
+    func errorHandling() async throws {
+        let useCase = Default{{ name }}UseCase()
+
+        // TODO: Test error scenarios
+        // Example:
+        // await #expect(throws: {{ name }}DomainError.notFound("missing")) {
+        //     try await useCase.fetch(id: "non-existent")
+        // }
+    }
+
+    // TODO: Add more domain logic tests
+    // Examples:
+    // - Business rule validations
+    // - Entity state transitions
+    // - Complex query operations
+    // - Batch operations
+}

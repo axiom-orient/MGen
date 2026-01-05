@@ -1,0 +1,96 @@
+package {{ cookiecutter.base_package }}.core.remoteconfig
+
+/**
+ * Remote Configuration Repository interface.
+ * Android equivalent of iOS RemoteConfigService protocol.
+ *
+ * Provides a unified interface for accessing remote configuration values
+ * regardless of the underlying implementation (Firebase, local, etc.).
+ *
+ * Note: Caching is handled by AppState singleton for centralized state management.
+ */
+interface RemoteConfigRepository {
+
+    /**
+     * Fetch and activate remote configuration values.
+     * This is a suspend function that should be called during app initialization.
+     *
+     * @throws RemoteConfigException if fetch fails and no defaults are available
+     */
+    public suspend fun fetchAndActivate()
+
+    /**
+     * Get a string value for the given key.
+     *
+     * @param key The configuration key
+     * @return The string value, or empty string if not found
+     */
+    public fun getString(key: String): String
+
+    /**
+     * Get a boolean value for the given key.
+     *
+     * @param key The configuration key
+     * @return The boolean value, or false if not found
+     */
+    public fun getBoolean(key: String): Boolean
+
+    /**
+     * Get a long value for the given key.
+     *
+     * @param key The configuration key
+     * @return The long value, or 0 if not found
+     */
+    public fun getLong(key: String): Long
+
+    /**
+     * Get a double value for the given key.
+     *
+     * @param key The configuration key
+     * @return The double value, or 0.0 if not found
+     */
+    public fun getDouble(key: String): Double
+}
+
+/**
+ * Exception thrown when remote config operations fail.
+ */
+public class RemoteConfigException(
+    message: String,
+    cause: Throwable? = null
+) : Exception(message, cause)
+
+/**
+ * Common remote config keys used across the app.
+ * Keys are aligned with iOS for Firebase Console consistency.
+ *
+ * Note: latest_app_version is NOT included here - it's fetched
+ * directly from the Play Store using StoreVersionChecker.
+ */
+public object RemoteConfigKeys {
+    // Force Update
+    public const val FORCE_UPDATE_MIN_VERSION: String = "force_update_min_version"
+
+    // Maintenance Mode
+    public const val MAINTENANCE_MODE_ENABLED: String = "maintenance_mode_enabled"
+    public const val MAINTENANCE_MESSAGE: String = "maintenance_message"
+
+    // Content
+    public const val WELCOME_MESSAGE: String = "welcome_message"
+}
+
+/**
+ * Default values for remote configuration.
+ * These are used when Firebase is not available or values are not set.
+ *
+ * Note: welcome_message and maintenance_message use JSON format for multi-language support.
+ */
+public object RemoteConfigDefaults {
+    public val defaults: Map<String, Any> = mapOf(
+        RemoteConfigKeys.FORCE_UPDATE_MIN_VERSION to "",
+        RemoteConfigKeys.MAINTENANCE_MODE_ENABLED to false,
+        RemoteConfigKeys.MAINTENANCE_MESSAGE to """{"ko":"약속한 시간까지 최고의 환경을 만들어 놓겠습니다. [00:00]에 다시 만나요!","en":"We're fine-tuning everything for your best experience. See you again at [00:00]!","ja":"より快適な環境を整えております。[00:00]にまたお会いしましょう！","zh-CN":"为了给您提供更好的体验，我们正在优化系统。期待在 [00:00] 与您再次见面！","zh-TW":"為了提供更優質的服務，我們正全力整備中。期待在 [00:00] 與您再次相見！","es":"Estamos mejorando todo para brindarte la mejor experiencia. ¡Nos vemos a las [00:00]!","vi":"Chúng tôi đang hoàn thiện dịch vụ tốt nhất dành cho bạn. Hẹn gặp lại vào lúc [00:00]!","th":"เรากำลังเตรียมระบบให้พร้อมที่สุดเพื่อคุณ แล้วพบกันใหม่ตอน [00:00] น. นะคะ/ครับ","fr":"Nous préparons le meilleur pour vous. Rendez-vous à [00:00] pour une expérience optimale !"}""",
+        RemoteConfigKeys.WELCOME_MESSAGE to """{"ko":"당신의 시간, 더 가치있게","en":"Glad you're here! Let's make today amazing.","ja":"ようこそ！今日も素敵な一日になりますように。","zh-CN":"很高兴遇见你，开启你的美好时光吧！","zh-TW":"遇見你真好，今天要一起創造美好回憶嗎？","es":"¡Qué bueno verte! Tu presencia nos alegra el día.","vi":"Thật tuyệt khi gặp bạn! Chúc bạn một ngày rạng rỡ.","th":"ดีใจที่ได้พบคุณ มาเริ่มช่วงเวลาดีๆ กันเถอะ","fr":"Ravi de vous voir ! Prêt pour un moment d'exception ?"}"""
+    )
+}
+

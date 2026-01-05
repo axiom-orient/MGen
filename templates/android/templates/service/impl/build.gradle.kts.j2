@@ -1,0 +1,19 @@
+// Service Impl Module: {{ service_name }}
+
+plugins {
+    id("convention.service.impl")
+}
+
+android {
+    namespace = "{{ base_package }}.service.{{ service_name_lower }}.impl"
+}
+
+dependencies {
+    // Service API
+    implementation(projects.service.service{{ service_name }}Api)
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+
+    // Network (if needed)
+    implementation(libs.bundles.network)
+}

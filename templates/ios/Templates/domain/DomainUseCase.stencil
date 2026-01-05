@@ -1,0 +1,115 @@
+import Foundation
+import Dependencies
+
+// MARK: - Use Case Protocol
+
+/// {{ name }} domain use case protocol
+/// TODO: Define your business logic interface
+public protocol {{ name }}UseCase: Sendable {
+    /// Fetch a single {{ name }} by ID
+    func fetch(id: String) async throws -> {{ name }}
+
+    /// Fetch all {{ name }} entities
+    func fetchAll() async throws -> [{{ name }}]
+
+    /// Create a new {{ name }}
+    func create(_ entity: {{ name }}) async throws -> {{ name }}
+
+    /// Update an existing {{ name }}
+    func update(_ entity: {{ name }}) async throws -> {{ name }}
+
+    /// Delete a {{ name }} by ID
+    func delete(id: String) async throws
+
+    // TODO: Add domain-specific methods
+    // Examples:
+    // func search(query: String) async throws -> [{{ name }}]
+    // func archive(id: String) async throws
+    // func validate(_ entity: {{ name }}) async throws -> Bool
+}
+
+// MARK: - TestDependencyKey Conformance
+
+extension {{ name }}UseCase: TestDependencyKey {
+    public static var testValue: any {{ name }}UseCase {
+        Unimplemented{{ name }}UseCase()
+    }
+
+    #if DEBUG
+    public static var previewValue: any {{ name }}UseCase {
+        Preview{{ name }}UseCase()
+    }
+    #endif
+}
+
+// MARK: - DependencyValues Extension
+
+public extension DependencyValues {
+    var {{ name | lowercase }}UseCase: any {{ name }}UseCase {
+        get { self[{{ name }}UseCase.self] }
+        set { self[{{ name }}UseCase.self] = newValue }
+    }
+}
+
+// MARK: - Test Helpers
+
+/// Unimplemented {{ name }}UseCase for testing
+/// Will crash if used without proper setup
+public struct Unimplemented{{ name }}UseCase: {{ name }}UseCase {
+    public init() {}
+
+    public func fetch(id: String) async throws -> {{ name }} {
+        XCTFail("\(Self.self).fetch not implemented")
+        throw {{ name }}DomainError.notFound(id)
+    }
+
+    public func fetchAll() async throws -> [{{ name }}] {
+        XCTFail("\(Self.self).fetchAll not implemented")
+        return []
+    }
+
+    public func create(_ entity: {{ name }}) async throws -> {{ name }} {
+        XCTFail("\(Self.self).create not implemented")
+        return entity
+    }
+
+    public func update(_ entity: {{ name }}) async throws -> {{ name }} {
+        XCTFail("\(Self.self).update not implemented")
+        return entity
+    }
+
+    public func delete(id: String) async throws {
+        XCTFail("\(Self.self).delete not implemented")
+    }
+}
+
+#if DEBUG
+/// Preview {{ name }}UseCase with mock data for SwiftUI previews
+public struct Preview{{ name }}UseCase: {{ name }}UseCase {
+    public init() {}
+
+    public func fetch(id: String) async throws -> {{ name }} {
+        // TODO: Return mock data for previews
+        {{ name }}(id: id)
+    }
+
+    public func fetchAll() async throws -> [{{ name }}] {
+        // TODO: Return mock data for previews
+        [
+            {{ name }}(id: "preview-1"),
+            {{ name }}(id: "preview-2"),
+            {{ name }}(id: "preview-3")
+        ]
+    }
+
+    public func create(_ entity: {{ name }}) async throws -> {{ name }} {
+        entity
+    }
+
+    public func update(_ entity: {{ name }}) async throws -> {{ name }} {
+        entity
+    }
+
+    public func delete(id: String) async throws {}
+}
+#endif

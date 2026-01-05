@@ -1,0 +1,17 @@
+/*
+  Localizable.strings
+  {{ name }}
+
+  Created by {{ organizationName }}
+*/
+
+/* Common */
+"app.name" = "{{ name }}";
+"common.ok" = "OK";
+"common.cancel" = "Cancel";
+"common.close" = "Close";
+"common.dismiss" = "Dismiss";
+
+/* Errors */
+"error.unknown" = "An unknown error occurred";
+"error.network" = "Network error occurred";

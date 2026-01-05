@@ -1,0 +1,11 @@
+package {{ base_package }}.service.{{ service_name_lower }}
+
+import {{ base_package }}.service.{{ service_name_lower }}.model.{{ service_name }}Response
+
+/**
+ * Service interface for {{ service_name }}
+ */
+public interface {{ service_name }}Service {
+    public suspend fun fetch(): Result<{{ service_name }}Response>
+    public suspend fun update(data: {{ service_name }}Response): Result<Unit>
+}

@@ -1,0 +1,77 @@
+package {{ cookiecutter.base_package }}.core.remoteconfig
+
+import android.util.Log
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Local/Fallback Remote Config implementation.
+ * Android equivalent of iOS NoopRemoteConfigService.
+ *
+ * Used when:
+ * - Firebase is not configured
+ * - Running in offline mode
+ * - Testing without network
+ *
+ * Note: Caching is handled by AppState singleton for centralized state management.
+ */
+@Singleton
+public class LocalRemoteConfigRepository @Inject constructor() : RemoteConfigRepository {
+
+    private val values: MutableMap<String, Any> = RemoteConfigDefaults.defaults.toMutableMap()
+
+    companion object {
+        private const val TAG = "LocalRemoteConfig"
+    }
+
+    init {
+        Log.i(TAG, "LocalRemoteConfigRepository initialized with ${values.size} default values")
+    }
+
+    override suspend fun fetchAndActivate() {
+        Log.i(TAG, "📦 Using local configuration defaults (${values.keys.sorted().joinToString(", ")})")
+        // No-op for local config - just use defaults
+    }
+
+    override fun getString(key: String): String {
+        return (values[key] as? String) ?: ""
+    }
+
+    override fun getBoolean(key: String): Boolean {
+        return (values[key] as? Boolean) ?: false
+    }
+
+    override fun getLong(key: String): Long {
+        return when (val value = values[key]) {
+            is Long -> value
+            is Int -> value.toLong()
+            is Number -> value.toLong()
+            else -> 0L
+        }
+    }
+
+    override fun getDouble(key: String): Double {
+        return when (val value = values[key]) {
+            is Double -> value
+            is Number -> value.toDouble()
+            else -> 0.0
+        }
+    }
+
+    /**
+     * Set a value for testing or development.
+     */
+    fun setValue(key: String, value: Any) {
+        values[key] = value
+        Log.d(TAG, "Set $key = $value")
+    }
+
+    /**
+     * Clear all custom values and reset to defaults.
+     */
+    fun reset() {
+        values.clear()
+        values.putAll(RemoteConfigDefaults.defaults)
+        Log.d(TAG, "Reset to defaults")
+    }
+}

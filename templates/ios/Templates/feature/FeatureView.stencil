@@ -1,0 +1,45 @@
+import SwiftUI
+import ComposableArchitecture
+import Dependencies
+
+public struct {{ name }}FeatureView: View {
+    @Bindable public var store: StoreOf<{{ name }}Feature>
+
+    public init(store: StoreOf<{{ name }}Feature>) {
+        self.store = store
+    }
+
+    public var body: some View {
+        VStack {
+            // TODO: Build your UI
+            // Example:
+            // if store.isLoading {
+            //     ProgressView()
+            // } else {
+            //     List(store.items) { item in
+            //         Text(item.name)
+            //     }
+            // }
+
+            Text("{{ name }} Feature")
+                .font(.title)
+
+            if store.isLoading {
+                ProgressView()
+            }
+        }
+        .task {
+            await store.send(.view(.onAppear))
+        }
+    }
+}
+
+#if DEBUG
+#Preview {
+    {{ name }}FeatureView(
+        store: Store(initialState: {{ name }}Feature.State()) {
+            {{ name }}Feature()
+        }
+    )
+}
+#endif

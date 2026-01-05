@@ -1,0 +1,99 @@
+package {{ cookiecutter.base_package }}.core.remoteconfig
+
+import android.content.Context
+import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
+import org.json.JSONObject
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Localized Remote Config value parser.
+ *
+ * **IMPORTANT**: All Remote Config text values MUST be in JSON format with language codes as keys.
+ *
+ * Example JSON format:
+ * ```json
+ * {
+ *   "ko": "한국어 메시지",
+ *   "en": "English message",
+ *   "ja": "日本語メッセージ"
+ * }
+ * ```
+ * Helper to handle localized string from JSON-encoded Remote Config values.
+ */
+@Singleton
+public class LocalizedRemoteConfig @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
+    private val TAG = "LocalizedRemoteConfig"
+
+    /**
+     * Parses a JSON string (e.g. {"en":"Hello", "ko":"안녕하세요"}) and returns
+     * the value for the current device locale.
+     *
+     * This function will attempt to find a localized string based on the device's current locale.
+     * If no specific locale match is found, it might fall back to a default (e.g., "en")
+     * or return an empty string, depending on the implementation.
+     *
+     * @param jsonString The raw JSON string from Remote Config.
+     * @return The localized string for the current device locale, or an empty string if not found or parsing fails.
+     */
+    public fun getLocalizedValue(jsonString: String?): String {
+        if (jsonString.isNullOrBlank()) {
+            Log.w(TAG, "JSON string for getLocalizedValue is null or blank.")
+            return ""
+        }
+
+        val currentLocale = context.resources.configuration.locales[0].language
+        return localize(jsonString, currentLocale) ?: ""
+    }
+
+    /**
+     * Get all available languages from a localized Remote Config value.
+     *
+     * @param rawValue The raw JSON string from Remote Config
+     * @return List of language codes, or empty list if not valid JSON format
+     */
+    public fun availableLanguages(rawValue: String): List<String> {
+        if (rawValue.isBlank()) return emptyList()
+
+        val json = try {
+            JSONObject(rawValue)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse JSON for availableLanguages", e)
+            return emptyList()
+        }
+
+        return json.keys().asSequence().toList().sorted()
+    }
+
+    /**
+     * Get a specific language version from a localized Remote Config value.
+     *
+     * @param rawValue The raw JSON string from Remote Config
+     * @param languageCode The desired language code (e.g., "ko", "en", "ja")
+     * @return The localized string, or null if not found
+     */
+    fun localize(rawValue: String, languageCode: String): String? {
+        if (rawValue.isBlank()) {
+            Log.w(TAG, "Raw value is blank")
+            return null
+        }
+
+        val json = try {
+            JSONObject(rawValue)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse JSON: $rawValue", e)
+            return null
+        }
+
+        return if (json.has(languageCode)) {
+            Log.d(TAG, "Found localized value for language: $languageCode")
+            json.getString(languageCode)
+        } else {
+            Log.w(TAG, "Language code not found: $languageCode")
+            null
+        }
+    }
+}

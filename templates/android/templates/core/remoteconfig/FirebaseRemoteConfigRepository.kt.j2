@@ -1,0 +1,142 @@
+package {{ cookiecutter.base_package }}.core.remoteconfig
+
+import android.util.Log
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.net.HttpURLConnection
+import java.net.URL
+import javax.inject.Inject
+import javax.inject.Singleton
+import {{ cookiecutter.base_package }}.core.data.BuildConfig
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+/**
+ * Firebase Remote Config implementation.
+ * Android equivalent of iOS FirebaseRemoteConfigAdapter.
+ *
+ * Features:
+ * - Firebase Remote Config fetch with timeout
+ * - Graceful fallback to default values
+ * - Network diagnostics for debugging
+ *
+ * Note: Caching is handled by AppState singleton for centralized state management.
+ */
+@Singleton
+public class FirebaseRemoteConfigRepository @Inject constructor() : RemoteConfigRepository {
+
+    private val remoteConfig: FirebaseRemoteConfig = FirebaseRemoteConfig.getInstance()
+
+    companion object {
+        private const val TAG = "FirebaseRemoteConfig"
+        private const val FETCH_TIMEOUT_SECONDS = 60L
+        private const val MINIMUM_FETCH_INTERVAL_DEBUG = 0L
+        private const val MINIMUM_FETCH_INTERVAL_RELEASE = 3600L
+    }
+
+    init {
+        val configSettings = FirebaseRemoteConfigSettings.Builder()
+            .setFetchTimeoutInSeconds(FETCH_TIMEOUT_SECONDS)
+            .setMinimumFetchIntervalInSeconds(
+                if (BuildConfig.DEBUG) {
+                    MINIMUM_FETCH_INTERVAL_DEBUG
+                } else {
+                    MINIMUM_FETCH_INTERVAL_RELEASE
+                }
+            )
+            .build()
+
+        remoteConfig.setConfigSettingsAsync(configSettings)
+        remoteConfig.setDefaultsAsync(RemoteConfigDefaults.defaults)
+
+        Log.d(TAG, "FirebaseRemoteConfig initialized with ${RemoteConfigDefaults.defaults.size} defaults")
+    }
+
+    override suspend fun fetchAndActivate() {
+        try {
+            withTimeout(FETCH_TIMEOUT_SECONDS * 1000) {
+                suspendCancellableCoroutine<Unit> { continuation ->
+                    val startTime = System.currentTimeMillis()
+
+                    remoteConfig.fetchAndActivate()
+                        .addOnSuccessListener { activated: Boolean ->
+                            val elapsed = System.currentTimeMillis() - startTime
+                            Log.i(TAG, buildString {
+                                append("✅ Remote Config fetch completed in ${elapsed}ms\n")
+                                append("- Activated: $activated\n")
+                                append("- Keys: ${remoteConfig.all.keys.sorted().joinToString(", ")}")
+                            })
+                            continuation.resume(Unit)
+                        }
+                        .addOnFailureListener { exception: Exception ->
+                            val elapsed = System.currentTimeMillis() - startTime
+                            Log.e(TAG, "❌ Remote Config fetch failed after ${elapsed}ms", exception)
+                            continuation.resumeWithException(
+                                RemoteConfigException("Fetch failed: ${exception.message}", exception)
+                            )
+                        }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Remote Config fetch failed, using default values", e)
+            diagnoseConnectivity()
+        }
+    }
+
+    override fun getString(key: String): String {
+        return remoteConfig.getString(key).also { value ->
+            Log.v(TAG, "getString($key) = $value")
+        }
+    }
+
+    override fun getBoolean(key: String): Boolean {
+        return remoteConfig.getBoolean(key).also { value ->
+            Log.v(TAG, "getBoolean($key) = $value")
+        }
+    }
+
+    override fun getLong(key: String): Long {
+        return remoteConfig.getLong(key).also { value ->
+            Log.v(TAG, "getLong($key) = $value")
+        }
+    }
+
+    override fun getDouble(key: String): Double {
+        return remoteConfig.getDouble(key).also { value ->
+            Log.v(TAG, "getDouble($key) = $value")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Network Diagnostics
+    // ══════════════════════════════════════════════════════════════
+
+    private suspend fun diagnoseConnectivity() {
+        Log.i(TAG, "🌐 Running network diagnostics...")
+        withContext(Dispatchers.IO) {
+            probeEndpoint("https://firebaseremoteconfig.googleapis.com/", "RemoteConfig")
+            probeEndpoint("https://firebaseinstallations.googleapis.com/", "Installations")
+        }
+    }
+
+    private fun probeEndpoint(urlString: String, label: String) {
+        try {
+            val url = URL(urlString)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "HEAD"
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            val responseCode = connection.responseCode
+            connection.disconnect()
+
+            Log.i(TAG, "🌐 $label endpoint reachable: status=$responseCode")
+        } catch (e: Exception) {
+            Log.e(TAG, "🌐 $label endpoint check failed: ${e.message}")
+        }
+    }
+}

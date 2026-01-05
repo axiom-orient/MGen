@@ -1,0 +1,40 @@
+import SwiftUI
+import ComposableArchitecture
+import Dependencies
+import {{ name }}FeatureInterface
+import {{ name }}FeatureInterfaceKeys
+
+/// Live builder that wires the reducer and view together.
+public struct Live{{ name }}FeatureBuilder: {{ name }}FeatureBuildable, @unchecked Sendable {
+    private let storeFactory: @Sendable () -> StoreOf<{{ name }}Feature>
+
+    public init(
+        storeFactory: @escaping @Sendable () -> StoreOf<{{ name }}Feature> = {
+            Store(initialState: {{ name }}Feature.State()) {
+                {{ name }}Feature()
+            }
+        }
+    ) {
+        self.storeFactory = storeFactory
+    }
+
+    @MainActor
+    public func build() -> AnyView {
+        AnyView(
+            {{ name }}FeatureView(store: storeFactory())
+        )
+    }
+}
+
+public extension DependencyValues {
+    /// Registers the live builder so Features or the App composition root can access it.
+    mutating func use{{ name }}FeatureLiveImplementation(
+        storeFactory: @escaping @Sendable () -> StoreOf<{{ name }}Feature> = {
+            Store(initialState: {{ name }}Feature.State()) {
+                {{ name }}Feature()
+            }
+        }
+    ) {
+        self[{{ name }}FeatureBuilderKey.self] = Live{{ name }}FeatureBuilder(storeFactory: storeFactory)
+    }
+}

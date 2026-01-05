@@ -1,0 +1,272 @@
+package {{ cookiecutter.base_package }}.lifecycle
+
+import android.util.Log
+import {{ cookiecutter.base_package }}.AppConstants
+import {{ cookiecutter.base_package }}.AppState
+import {{ cookiecutter.base_package }}.BuildConfig
+import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigRepository
+import {{ cookiecutter.base_package }}.core.remoteconfig.UpdateChecker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Manages application lifecycle and cold start sequence.
+ * Android equivalent of iOS ApplicationLifecycle + AppReducer pattern.
+ *
+ * Responsibilities:
+ * - Execute cold start sequence (Remote Config → Analytics → Ready)
+ * - Handle startup errors with retry logic
+ * - Check for force updates (delegated to UpdateChecker)
+ * - Manage app foreground/background transitions
+ *
+ * Decoupling:
+ * - Version comparison → UpdateChecker (SRP)
+ * - State persistence → AppState singleton
+ * - UI display → Composables observe state
+ */
+@Singleton
+public class AppLifecycleManager @Inject constructor(
+    private val remoteConfigRepository: RemoteConfigRepository,
+    private val updateChecker: UpdateChecker,
+    private val appState: AppState
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Splash)
+    val startupState: StateFlow<AppStartupState> = _startupState.asStateFlow()
+
+    private val _isColdStartComplete = MutableStateFlow(false)
+    val isColdStartComplete: StateFlow<Boolean> = _isColdStartComplete.asStateFlow()
+
+    private var lastStartupError: Throwable? = null
+
+    companion object {
+        private const val TAG = "AppLifecycleManager"
+    }
+
+    /**
+     * Initialize the cold start sequence.
+     * Call this from MainActivity or Application.
+     */
+    fun initialize() {
+        scope.launch {
+            performColdStart()
+        }
+    }
+
+    /**
+     * Retry the cold start sequence after a failure.
+     */
+    fun retry() {
+        scope.launch {
+            Log.i(TAG, "Retrying cold start sequence")
+            lastStartupError = null
+            _startupState.value = AppStartupState.Splash
+            performColdStart()
+        }
+    }
+
+    private suspend fun performColdStart() {
+        Log.i(TAG, "🚀 Starting cold start sequence")
+        val startTime = System.currentTimeMillis()
+        val isFirstLaunch = !appState.isFirstLaunchComplete
+
+        try {
+            // Step 1: Load Remote Config
+            _startupState.value = AppStartupState.Loading(0.3f, "Loading configuration...")
+            remoteConfigRepository.fetchAndActivate()
+            
+            // Sync to AppState (persists values)
+            appState.syncFromRemoteConfig(remoteConfigRepository)
+            Log.i(TAG, "✅ Remote config loaded and synced to AppState")
+
+            // Mark first launch complete
+            if (isFirstLaunch) {
+                appState.markFirstLaunchComplete()
+            }
+
+            // Step 2: Check for maintenance mode (highest priority)
+            if (appState.isMaintenanceMode.first()) {
+                Log.w(TAG, "🔧 Maintenance mode enabled")
+                val localizedMessage = appState.getLocalizedMaintenanceMessage()
+                _startupState.value = AppStartupState.Maintenance(localizedMessage)
+                return // Block here until maintenance ends
+            }
+
+            // Step 3: Check for force update (using UpdateChecker + AppState)
+            _startupState.value = AppStartupState.Loading(0.5f, "Checking for updates...")
+            val forceUpdateState = checkForceUpdate()
+            if (forceUpdateState != null) {
+                _startupState.value = forceUpdateState
+                return // Block here until update
+            }
+
+            // Step 4: Initialize Analytics
+            _startupState.value = AppStartupState.Loading(0.7f, "Initializing analytics...")
+            initializeAnalytics()
+
+            // Step 5: Ensure minimum splash duration
+            val elapsed = System.currentTimeMillis() - startTime
+            if (elapsed < AppConstants.SPLASH_MIN_DURATION_MS) {
+                delay(AppConstants.SPLASH_MIN_DURATION_MS - elapsed)
+            }
+
+            // Step 6: Mark as ready
+            _startupState.value = AppStartupState.Loading(1.0f, "Ready!")
+            delay(200) // Brief pause to show 100%
+            _startupState.value = AppStartupState.Ready
+            _isColdStartComplete.value = true
+            Log.i(TAG, "✅ Cold start complete in ${System.currentTimeMillis() - startTime}ms")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Cold start failed", e)
+            lastStartupError = e
+
+            // First launch + no network → use defaults (matches iOS behavior)
+            if (isFirstLaunch && !appState.hasCachedRemoteConfig) {
+                Log.i(TAG, "📱 First launch with no network, using defaults")
+                appState.markFirstLaunchComplete()
+                proceedWithDefaults(startTime)
+                return
+            }
+
+            // Valid cache exists → use it (matches iOS behavior)
+            scope.launch {
+                if (appState.isCacheValid) {
+                    Log.i(TAG, "✅ Using valid cached config")
+                    proceedWithCachedValues(startTime)
+                    return@launch
+                }
+            }
+
+            // Expired cache + network fail → show error
+            _startupState.value = AppStartupState.Error(
+                message = e.localizedMessage ?: "네트워크 연결을 확인하고 다시 시도해주세요.",
+                throwable = e,
+                isRetryable = true
+            )
+        }
+    }
+
+    private suspend fun proceedWithDefaults(startTime: Long) {
+        // Skip maintenance/forceUpdate checks when using defaults
+        initializeAnalytics()
+        val elapsed = System.currentTimeMillis() - startTime
+        if (elapsed < AppConstants.SPLASH_MIN_DURATION_MS) {
+            delay(AppConstants.SPLASH_MIN_DURATION_MS - elapsed)
+        }
+        _startupState.value = AppStartupState.Ready
+        _isColdStartComplete.value = true
+        Log.i(TAG, "✅ Cold start complete (defaults) in ${System.currentTimeMillis() - startTime}ms")
+    }
+
+    private suspend fun proceedWithCachedValues(startTime: Long) {
+        // Check maintenance mode
+        if (appState.isMaintenanceMode.first()) {
+            val localizedMessage = appState.getLocalizedMaintenanceMessage()
+            _startupState.value = AppStartupState.Maintenance(localizedMessage)
+            return
+        }
+        // Check force update
+        val forceUpdateState = checkForceUpdate()
+        if (forceUpdateState != null) {
+            _startupState.value = forceUpdateState
+            return
+        }
+        // Proceed to ready
+        initializeAnalytics()
+        val elapsed = System.currentTimeMillis() - startTime
+        if (elapsed < AppConstants.SPLASH_MIN_DURATION_MS) {
+            delay(AppConstants.SPLASH_MIN_DURATION_MS - elapsed)
+        }
+        _startupState.value = AppStartupState.Ready
+        _isColdStartComplete.value = true
+        Log.i(TAG, "✅ Cold start complete (cached) in ${System.currentTimeMillis() - startTime}ms")
+    }
+
+    /**
+     * Check if force update is required using AppState (cached values).
+     */
+    private suspend fun checkForceUpdate(): AppStartupState.ForceUpdate? {
+        val minimumVersion = appState.forceUpdateMinimumVersion.first()
+        val currentVersion = BuildConfig.VERSION_NAME
+
+        if (updateChecker.isUpdateRequired(currentVersion, minimumVersion)) {
+            Log.w(TAG, "⚠️ Force update required: $currentVersion < $minimumVersion")
+            return AppStartupState.ForceUpdate(
+                currentVersion = currentVersion,
+                requiredVersion = minimumVersion,
+                updateUrl = updateChecker.getStoreUrl(BuildConfig.APPLICATION_ID)
+            )
+        }
+        return null
+    }
+
+    private fun initializeAnalytics() {
+        Log.d(TAG, "Initializing Analytics...")
+        // TODO: Configure analytics SDK
+    }
+
+    /**
+     * Handle app moving to foreground.
+     * Checks cache validity and re-fetches if expired (matches iOS behavior).
+     */
+    fun onForeground() {
+        Log.d(TAG, "App moved to foreground")
+        appState.setInForeground(true)
+
+        // Skip if cold start is not complete yet
+        if (!_isColdStartComplete.value) return
+
+        // Check cache validity and state in coroutine
+        scope.launch {
+            if (appState.isCacheValid) {
+                // Cache is valid - just check current values using cached data
+                Log.d(TAG, "✅ Cache is valid, checking current state")
+                checkCurrentStateFromCache()
+            } else {
+                // Cache expired - need to re-fetch, show splash (matches iOS)
+                Log.i(TAG, "⏰ Cache expired, re-fetching remote config")
+                _startupState.value = AppStartupState.Splash
+                performColdStart()
+            }
+        }
+    }
+
+    /**
+     * Check current state using cached values (for foreground return with valid cache)
+     */
+    private suspend fun checkCurrentStateFromCache() {
+        // Check Maintenance Mode
+        if (appState.isMaintenanceMode.first() && _startupState.value !is AppStartupState.Maintenance) {
+            Log.w(TAG, "🔧 Maintenance mode detected on foreground")
+            val localizedMessage = appState.getLocalizedMaintenanceMessage()
+            _startupState.value = AppStartupState.Maintenance(localizedMessage)
+            return
+        }
+
+        // Check Force Update
+        val forceUpdateState = checkForceUpdate()
+        if (forceUpdateState != null && _startupState.value !is AppStartupState.ForceUpdate) {
+            Log.w(TAG, "Force update required on foreground return")
+            _startupState.value = forceUpdateState
+        }
+    }
+
+    /**
+     * Handle app moving to background.
+     */
+    fun onBackground() {
+        Log.d(TAG, "App moved to background")
+        appState.setInForeground(false)
+    }
+}

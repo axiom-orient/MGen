@@ -1,0 +1,47 @@
+import Dependencies
+import {{ name }}ServiceInterface
+
+// MARK: - DependencyKey
+
+public enum {{ name }}ServiceKey: DependencyKey {
+    public static let liveValue: any {{ name }}Service = Live{{ name }}Service()
+
+    #if DEBUG
+    public static let testValue: any {{ name }}Service = Unimplemented{{ name }}Service()
+    public static let previewValue: any {{ name }}Service = Preview{{ name }}Service()
+    #endif
+}
+
+extension DependencyValues {
+    public var {{ name | lowercase }}Service: any {{ name }}Service {
+        get { self[{{ name }}ServiceKey.self] }
+        set { self[{{ name }}ServiceKey.self] = newValue }
+    }
+}
+
+// MARK: - Test Helpers
+
+/// Unimplemented {{ name }}Service for testing
+public struct Unimplemented{{ name }}Service: {{ name }}Service {
+    public init() {}
+
+    // TODO: Implement unimplemented methods
+    // Example:
+    // public func fetchData(id: String) async throws -> Data {
+    //     XCTFail("{{ name }}Service.fetchData not implemented")
+    //     throw {{ name }}ServiceError.notConfigured
+    // }
+}
+
+#if DEBUG
+/// Preview {{ name }}Service with mock data for SwiftUI previews
+public struct Preview{{ name }}Service: {{ name }}Service {
+    public init() {}
+
+    // TODO: Implement preview methods with mock data
+    // Example:
+    // public func fetchData(id: String) async throws -> Data {
+    //     Data("Mock data for preview".utf8)
+    // }
+}
+#endif

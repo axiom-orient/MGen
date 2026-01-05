@@ -1,0 +1,175 @@
+package {{ cookiecutter.base_package }}.ui
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import {{ cookiecutter.base_package }}.lifecycle.AppStartupState
+
+/**
+ * Animated Splash Screen.
+ * Android equivalent of iOS SplashView.
+ *
+ * Features:
+ * - Scale and fade animation
+ * - Gradient background
+ * - Progress indicator during loading
+ */
+@Composable
+fun SplashScreen(
+    startupState: AppStartupState,
+    modifier: Modifier = Modifier
+) {
+    val scale = remember { Animatable(0.5f) }
+    val alpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        // Entrance animation
+        scale.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 800,
+                easing = FastOutSlowInEasing
+            )
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        alpha.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 600,
+                delayMillis = 200
+            )
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFAF8F6),
+                        Color(0xFFF2EDEA)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // App Icon
+            Box(
+                modifier = Modifier
+                    .scale(scale.value)
+                    .size(100.dp)
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFFE66B5B),
+                                Color(0xFFCC4D3D)
+                            )
+                        ),
+                        shape = RoundedCornerShape(20.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Widgets,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // App Name
+            Text(
+                text = "{{ cookiecutter.project_name }}".uppercase(),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    color = Color(0xFFE66B5B)
+                ),
+                modifier = Modifier.alpha(alpha.value)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Subtitle
+            Text(
+                text = "Powered by {{ cookiecutter.project_name }}",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = Color(0xFF666666)
+                ),
+                modifier = Modifier.alpha(alpha.value * 0.8f)
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // Loading indicator
+            when (startupState) {
+                is AppStartupState.Splash,
+                is AppStartupState.Loading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .alpha(alpha.value),
+                        color = Color(0xFFE66B5B),
+                        strokeWidth = 3.dp
+                    )
+
+                    if (startupState is AppStartupState.Loading) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = startupState.message,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color(0xFF999999)
+                            ),
+                            modifier = Modifier.alpha(alpha.value)
+                        )
+                    }
+                }
+                else -> { /* No indicator */ }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun SplashScreenPreview() {
+    SplashScreen(startupState = AppStartupState.Loading(0.5f, "Loading..."))
+}

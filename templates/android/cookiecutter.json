@@ -1,0 +1,40 @@
+{
+  "project_name": "MyAwesomeApp",
+  "template_dir": "",
+  "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-').replace('_', '-') }}",
+  "package_name": "{{ cookiecutter.project_slug.replace('-', '').replace('_', '') }}",
+  "base_package": "com.example.{{ cookiecutter.package_name }}",
+  "min_sdk": "24",
+  "target_sdk": "35",
+  "compile_sdk": "35",
+  "version_code": "1",
+  "version_name": "1.0.0",
+  "kotlin_version": "2.1.0",
+  "agp_version": "8.7.3",
+  "compose_bom_version": "2024.12.01",
+  "hilt_version": "2.54",
+  "organization_name": "MyOrg",
+  "use_firebase": [
+    "yes",
+    "no"
+  ],
+  "architecture_pattern": [
+    "MVI",
+    "MVVM"
+  ],
+  "_copy_without_render": [
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.webp"
+  ],
+  "_jinja2_env_vars": {
+    "block_start_string": "{%",
+    "block_end_string": "%}",
+    "variable_start_string": "{{",
+    "variable_end_string": "}}",
+    "comment_start_string": "{#",
+    "comment_end_string": "#}"
+  }
+}

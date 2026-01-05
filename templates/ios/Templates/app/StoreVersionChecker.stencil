@@ -1,0 +1,95 @@
+import Foundation
+import OSLog
+
+// MARK: - Store Version Checker Protocol
+
+/// Protocol for checking the latest app version from the App Store.
+/// Decoupled from implementation for testability.
+public protocol StoreVersionChecking: Sendable {
+    /// Fetches the latest version from the App Store
+    /// - Parameter bundleId: The app's bundle identifier
+    /// - Returns: The latest version string, or nil if unavailable
+    func fetchLatestVersion(bundleId: String) async -> String?
+}
+
+// MARK: - iTunes Lookup Implementation
+
+/// Fetches the latest app version from Apple's iTunes Lookup API.
+/// Endpoint: https://itunes.apple.com/lookup?bundleId=...
+public struct AppStoreVersionChecker: StoreVersionChecking {
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "StoreVersion")
+    private let session: URLSession
+    
+    public init(session: URLSession = .shared) {
+        self.session = session
+    }
+    
+    public func fetchLatestVersion(bundleId: String) async -> String? {
+        guard let url = URL(string: "https://itunes.apple.com/lookup?bundleId=\(bundleId)") else {
+            logger.error("Invalid bundle ID: \(bundleId)")
+            return nil
+        }
+        
+        do {
+            let (data, response) = try await session.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                logger.warning("App Store lookup failed with non-200 status")
+                return nil
+            }
+            
+            let lookupResponse = try JSONDecoder().decode(AppStoreLookupResponse.self, from: data)
+            
+            guard let result = lookupResponse.results.first else {
+                logger.info("App not found in App Store for bundle ID: \(bundleId)")
+                return nil
+            }
+            
+            logger.info("✅ Latest App Store version: \(result.version)")
+            return result.version
+            
+        } catch {
+            logger.error("Failed to fetch App Store version: \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
+
+// MARK: - Response Models
+
+private struct AppStoreLookupResponse: Decodable {
+    let resultCount: Int
+    let results: [AppStoreResult]
+}
+
+private struct AppStoreResult: Decodable {
+    let version: String
+    let trackViewUrl: String?
+}
+
+// MARK: - Noop Implementation (for testing/preview)
+
+public struct NoopStoreVersionChecker: StoreVersionChecking {
+    public init() {}
+    
+    public func fetchLatestVersion(bundleId: String) async -> String? {
+        return nil
+    }
+}
+
+// MARK: - Dependency Key
+
+import Dependencies
+
+private enum StoreVersionCheckerKey: DependencyKey {
+    static let liveValue: any StoreVersionChecking = AppStoreVersionChecker()
+    static let testValue: any StoreVersionChecking = NoopStoreVersionChecker()
+}
+
+public extension DependencyValues {
+    var storeVersionChecker: any StoreVersionChecking {
+        get { self[StoreVersionCheckerKey.self] }
+        set { self[StoreVersionCheckerKey.self] = newValue }
+    }
+}

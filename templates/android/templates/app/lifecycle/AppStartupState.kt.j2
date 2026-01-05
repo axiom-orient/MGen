@@ -1,0 +1,73 @@
+package {{ cookiecutter.base_package }}.lifecycle
+
+/**
+ * Represents the application startup states.
+ * Follows iOS ApplicationLifecycle pattern with Android-specific adaptations.
+ *
+ * State Priority: Maintenance > ForceUpdate > Error > Ready
+ */
+sealed interface AppStartupState {
+    /**
+     * Initial splash screen state
+     */
+    data object Splash : AppStartupState
+
+    /**
+     * Loading state during cold start sequence
+     */
+    data class Loading(
+        val progress: Float = 0f,
+        val message: String = ""
+    ) : AppStartupState
+
+    /**
+     * Maintenance mode - server is under maintenance
+     * Priority: Highest (blocks all other states)
+     */
+    data class Maintenance(
+        val message: String
+    ) : AppStartupState
+
+    /**
+     * Error state with retry capability
+     */
+    data class Error(
+        val message: String,
+        val throwable: Throwable? = null,
+        val isRetryable: Boolean = true
+    ) : AppStartupState
+
+    /**
+     * Force update required state
+     */
+    data class ForceUpdate(
+        val currentVersion: String,
+        val requiredVersion: String,
+        val updateUrl: String
+    ) : AppStartupState
+
+    /**
+     * App is ready for normal operation
+     */
+    data object Ready : AppStartupState
+}
+
+/**
+ * Represents individual startup step states
+ */
+enum class StartupStep {
+    REMOTE_CONFIG,
+    ANALYTICS,
+    DEEP_LINK
+}
+
+/**
+ * Result of startup initialization
+ */
+sealed interface StartupResult {
+    data object Success : StartupResult
+    data class Failure(val step: StartupStep, val error: Throwable) : StartupResult
+    data class ForceUpdateRequired(val requiredVersion: String) : StartupResult
+    data class MaintenanceRequired(val message: String) : StartupResult
+}
+

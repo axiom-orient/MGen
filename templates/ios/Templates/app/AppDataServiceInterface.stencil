@@ -1,0 +1,73 @@
+import Foundation
+import Dependencies
+import DependenciesMacros
+
+// MARK: - {{ name }} Data Repository Interface
+
+/// Generic CRUD repository protocol for {{ name }}
+///
+/// This interface defines the contract for data persistence operations.
+/// The implementation uses sqlite-data for efficient local storage.
+@DependencyClient
+public struct AppDataRepositoryClient: Sendable {
+    // MARK: - Create
+    public var insert: @Sendable (_ item: AppDataItem) async throws -> Void = { _ in }
+    public var insertBatch: @Sendable (_ items: [AppDataItem]) async throws -> Void = { _ in }
+    
+    // MARK: - Read
+    public var fetchAll: @Sendable () async throws -> [AppDataItem] = { [] }
+    public var fetchById: @Sendable (_ id: UUID) async throws -> AppDataItem? = { _ in nil }
+    public var fetchWhere: @Sendable (_ predicate: @Sendable (AppDataItem) -> Bool) async -> [AppDataItem] = { _ in [] }
+    public var count: @Sendable () async -> Int = { 0 }
+    
+    // MARK: - Update
+    public var update: @Sendable (_ item: AppDataItem) async throws -> Void = { _ in }
+    public var upsert: @Sendable (_ item: AppDataItem) async throws -> Void = { _ in }
+    
+    // MARK: - Delete
+    public var delete: @Sendable (_ id: UUID) async throws -> Void = { _ in }
+    public var deleteAll: @Sendable () async throws -> Void = { }
+}
+
+// MARK: - Data Model
+
+/// Base data item model for {{ name }}
+///
+/// Extend this struct or create your own @Table structs for specific data types.
+public struct AppDataItem: Equatable, Sendable, Codable, Identifiable {
+    public let id: UUID
+    public var title: String
+    public var content: String
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var metadata: [String: String]
+    
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        content: String = "",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        metadata: [String: String] = [:]
+    ) {
+        self.id = id
+        self.title = title
+        self.content = content
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.metadata = metadata
+    }
+}
+
+// MARK: - Dependency Key
+
+public extension DependencyValues {
+    var appDataRepository: AppDataRepositoryClient {
+        get { self[AppDataRepositoryClient.self] }
+        set { self[AppDataRepositoryClient.self] = newValue }
+    }
+}
+
+extension AppDataRepositoryClient: TestDependencyKey {
+    public static let testValue = Self()
+}

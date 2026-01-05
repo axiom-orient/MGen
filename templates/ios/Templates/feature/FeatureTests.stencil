@@ -1,0 +1,62 @@
+import Testing
+import ComposableArchitecture
+@testable import {{ name }}FeatureSources
+
+@Suite("{{ name }}Feature Tests")
+struct {{ name }}FeatureTests {
+
+    @Test("Initial state is correct")
+    func initialState() async {
+        let store = TestStore(initialState: {{ name }}Feature.State()) {
+            {{ name }}Feature()
+        }
+
+        #expect(store.state.isLoading == false)
+        // TODO: Add more initial state assertions
+    }
+
+    @Test("onAppear loads data")
+    @MainActor
+    func onAppear() async {
+        let store = TestStore(initialState: {{ name }}Feature.State()) {
+            {{ name }}Feature()
+        } withDependencies: {
+            // TODO: Mock dependencies here
+            // Example:
+            // $0.continuousClock = TestClock()
+            // $0.{{ name | lowercase }}UseCase = Mock{{ name }}UseCase()
+        }
+
+        await store.send(.view(.onAppear)) {
+            $0.isLoading = true
+        }
+
+        // TODO: Add effect expectations
+        // Example:
+        // await store.receive(\.internal.loaded) {
+        //     $0.isLoading = false
+        //     $0.data = expectedData
+        // }
+    }
+
+    @Test("User action triggers expected behavior")
+    @MainActor
+    func userActionTest() async {
+        let store = TestStore(initialState: {{ name }}Feature.State()) {
+            {{ name }}Feature()
+        }
+
+        // TODO: Test user interactions
+        // Example:
+        // await store.send(.view(.buttonTapped)) {
+        //     $0.someProperty = expectedValue
+        // }
+    }
+
+    // TODO: Add more test cases for your feature
+    // Examples:
+    // - Error handling scenarios
+    // - Navigation flows
+    // - Delegate actions
+    // - Reducer composition
+}

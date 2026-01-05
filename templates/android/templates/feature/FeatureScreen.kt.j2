@@ -1,0 +1,110 @@
+package {{ base_package }}.feature.{{ feature_name_lower }}
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/**
+ * {{ feature_name }} Screen
+ */
+@Composable
+public fun {{ feature_name }}Screen(
+    viewModel: {{ feature_name }}ViewModel = hiltViewModel(),
+    onNavigateBack: () -> Unit
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val sideEffect = viewModel.sideEffect
+
+    LaunchedEffect(sideEffect) {
+        sideEffect.collect { effect ->
+            when (effect) {
+                is {{ feature_name }}SideEffect.NavigateBack -> onNavigateBack()
+                is {{ feature_name }}SideEffect.ShowError -> {
+                    // Show snackbar or toast
+                }
+            }
+        }
+    }
+
+    {{ feature_name }}Content(
+        state = state,
+        onAction = viewModel::onAction
+    )
+}
+
+@Composable
+public fun {{ feature_name }}Content(
+    state: {{ feature_name }}State,
+    onAction: ({{ feature_name }}Action) -> Unit
+) {
+    Scaffold { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentAlignment = Alignment.Center
+        ) {
+            when {
+                state.isLoading -> {
+                    CircularProgressIndicator()
+                }
+                state.error != null -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Error: ${state.error}",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Button(
+                            onClick = { onAction({{ feature_name }}Action.Refresh) },
+                            modifier = Modifier.padding(top = 16.dp)
+                        ) {
+                            Text("Retry")
+                        }
+                    }
+                }
+                else -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = state.data.firstOrNull() ?: "No data",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                        Button(
+                            onClick = { onAction({{ feature_name }}Action.OnItemClicked("123")) },
+                            modifier = Modifier.padding(top = 16.dp)
+                        ) {
+                            Text("Test Navigation")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun {{ feature_name }}ContentPreview() {
+    {{ feature_name }}Content(
+        state = {{ feature_name }}State(data = listOf("Preview Data")),
+        onAction = {}
+    )
+}

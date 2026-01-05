@@ -1,0 +1,16 @@
+package {{ cookiecutter.base_package }}.core.database
+
+import androidx.room.Database
+import androidx.room.RoomDatabase
+import {{ cookiecutter.base_package }}.core.database.dao.SampleDao
+import {{ cookiecutter.base_package }}.core.database.entity.SampleEntity
+
+@Database(
+    entities = [SampleEntity::class],
+    version = 1,
+    exportSchema = false
+)
+abstract class AppDatabase : RoomDatabase() {
+    // Replace SampleEntity/SampleDao with your app-specific tables.
+    abstract fun sampleDao(): SampleDao
+}

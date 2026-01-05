@@ -1,0 +1,39 @@
+package {{ base_package }}.service.{{ service_name_lower }}.impl
+
+import {{ base_package }}.service.{{ service_name_lower }}.{{ service_name }}Service
+import {{ base_package }}.service.{{ service_name_lower }}.model.{{ service_name }}Response
+import javax.inject.Inject
+
+/**
+ * Implementation of {{ service_name }}Service
+ */
+/**
+ * Implementation of {{ service_name }}Service
+ */
+public class Live{{ service_name }}Service @Inject constructor(
+    // Inject dependencies here (e.g., Retrofit API)
+) : {{ service_name }}Service {
+
+    override suspend fun fetch(): Result<{{ service_name }}Response> {
+        return try {
+            // TODO: Implement actual API call
+            val response = {{ service_name }}Response(
+                id = "1",
+                data = "Sample data",
+                timestamp = System.currentTimeMillis()
+            )
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun update(data: {{ service_name }}Response): Result<Unit> {
+        return try {
+            // TODO: Implement actual API call
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+}

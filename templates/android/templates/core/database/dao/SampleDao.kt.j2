@@ -1,0 +1,16 @@
+package {{ cookiecutter.base_package }}.core.database.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import {{ cookiecutter.base_package }}.core.database.entity.SampleEntity
+
+@Dao
+interface SampleDao {
+    @Query("SELECT * FROM sample_entities WHERE id = :id")
+    suspend fun getById(id: String): SampleEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: SampleEntity)
+}

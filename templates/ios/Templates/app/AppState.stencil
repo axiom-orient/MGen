@@ -1,0 +1,313 @@
+import Foundation
+import SharedCore
+import SwiftUI
+import OSLog
+import Dependencies
+import DependenciesMacros
+import Sharing
+
+// MARK: - Cache Configuration
+
+private enum CacheConfig {
+    /// Cache TTL in seconds (10 minutes)
+    static let ttlSeconds: TimeInterval = 600
+}
+
+// MARK: - App State Keys
+
+private enum AppStateKeys {
+    // Persistent (appStorage)
+    static let forceUpdateMinVersion = "{{ name | lowercase }}_appState_forceUpdateMinVersion"
+    static let maintenanceMode = "{{ name | lowercase }}_appState_maintenanceMode"
+    static let maintenanceMessage = "{{ name | lowercase }}_appState_maintenanceMessage"
+    static let welcomeMessage = "{{ name | lowercase }}_appState_welcomeMessage"
+    static let lastRemoteConfigSync = "{{ name | lowercase }}_appState_lastRemoteConfigSync"
+    static let userLanguageCode = "{{ name | lowercase }}_appState_userLanguageCode"
+    
+    // In-Memory (volatile)
+    static let selectedTabIndex = "{{ name | lowercase }}_volatile_selectedTabIndex"
+    static let isShowingOnboarding = "{{ name | lowercase }}_volatile_isShowingOnboarding"
+    static let lastViewedScreen = "{{ name | lowercase }}_volatile_lastViewedScreen"
+    static let isInForeground = "{{ name | lowercase }}_volatile_isInForeground"
+    static let latestStoreVersion = "{{ name | lowercase }}_volatile_latestStoreVersion"
+    static let isSplashAnimationComplete = "{{ name | lowercase }}_volatile_isSplashAnimationComplete"
+    static let isValidationComplete = "{{ name | lowercase }}_volatile_isValidationComplete"
+}
+
+// MARK: - App State Manager
+
+/// Internal app state storage for {{ name }}
+///
+/// Access via `@Dependency(\.appState)` - do NOT use `AppState.shared` directly.
+///
+/// **swift-sharing Strategies:**
+/// - `@Shared(.appStorage(...))` - Persistent (survives app restart)
+/// - `@Shared(.inMemory(...))` - Volatile (app-wide shared, reset on restart)
+@MainActor
+@Observable
+final class AppState {
+
+    fileprivate static let shared = AppState()
+
+    private let logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "AppState")
+
+    // MARK: - Volatile State (In-Memory, app-wide sharing)
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.selectedTabIndex))
+    var selectedTabIndex: Int = 0
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.isShowingOnboarding))
+    var isShowingOnboarding: Bool = false
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.lastViewedScreen))
+    var lastViewedScreen: String = ""
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.isInForeground))
+    var isInForeground: Bool = true
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.latestStoreVersion))
+    var latestStoreVersion: String? = nil
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.isSplashAnimationComplete))
+    var isSplashAnimationComplete: Bool = false
+    
+    @ObservationIgnored
+    @Shared(.inMemory(AppStateKeys.isValidationComplete))
+    var isValidationComplete: Bool = false
+
+    // MARK: - Persistent State (appStorage, survives restart)
+
+    @ObservationIgnored
+    @Shared(.appStorage(AppStateKeys.forceUpdateMinVersion))
+    var forceUpdateMinimumVersion: String = ""
+
+    @ObservationIgnored
+    @Shared(.appStorage(AppStateKeys.maintenanceMode))
+    var isMaintenanceMode: Bool = false
+
+    @ObservationIgnored
+    @Shared(.appStorage(AppStateKeys.maintenanceMessage))
+    var maintenanceMessage: String = ""
+
+    @ObservationIgnored
+    @Shared(.appStorage(AppStateKeys.welcomeMessage))
+    var welcomeMessage: String = ""
+
+    @ObservationIgnored
+    @Shared(.appStorage(AppStateKeys.lastRemoteConfigSync))
+    var lastRemoteConfigSyncTimestamp: Double = 0
+
+    @ObservationIgnored
+    @Shared(.appStorage(AppStateKeys.userLanguageCode))
+    var userLanguageCode: String = ""
+
+    // MARK: - Computed
+
+    /// Check if cache exists
+    var hasCachedRemoteConfig: Bool {
+        lastRemoteConfigSyncTimestamp > 0
+    }
+
+    /// Check if cache is valid (within TTL)
+    var isCacheValid: Bool {
+        guard hasCachedRemoteConfig else { return false }
+        let elapsed = Date().timeIntervalSince1970 - lastRemoteConfigSyncTimestamp
+        return elapsed < CacheConfig.ttlSeconds
+    }
+
+    /// Check if both splash animation and validation are complete
+    var isReadyToTransition: Bool {
+        isSplashAnimationComplete && isValidationComplete
+    }
+
+    // MARK: - Localized Values
+
+    /// Get localized welcome message based on user's selected language
+    var localizedWelcomeMessage: String {
+        let languageCode = effectiveLanguageCode
+        return LocalizedRemoteConfig.localize(welcomeMessage, forLanguage: languageCode)
+            ?? LocalizedRemoteConfig.localize(welcomeMessage, forLanguage: "en")
+            ?? ""
+    }
+
+    /// Get localized maintenance message based on user's selected language
+    var localizedMaintenanceMessage: String {
+        let languageCode = effectiveLanguageCode
+        return LocalizedRemoteConfig.localize(maintenanceMessage, forLanguage: languageCode)
+            ?? LocalizedRemoteConfig.localize(maintenanceMessage, forLanguage: "en")
+            ?? ""
+    }
+
+    /// Get effective language code (user preference or device default)
+    var effectiveLanguageCode: String {
+        if !userLanguageCode.isEmpty {
+            return userLanguageCode
+        }
+        // Device default
+        let preferredLanguage = Locale.preferredLanguages.first ?? "en"
+        return String(preferredLanguage.prefix(2))
+    }
+
+    // MARK: - Initialization
+
+    private init() {
+        // Initialize user language code from device if not set
+        if userLanguageCode.isEmpty {
+            let deviceLanguage = Locale.preferredLanguages.first ?? "en"
+            $userLanguageCode.withLock { $0 = String(deviceLanguage.prefix(2)) }
+            logger.info("Initialized user language: \(self.userLanguageCode)")
+        }
+        logger.debug("AppState initialized")
+    }
+
+    // MARK: - Remote Config Sync
+
+    func syncFromRemoteConfig(_ service: any RemoteConfigService) {
+        $forceUpdateMinimumVersion.withLock { $0 = service.getString(forKey: AppConstants.RemoteConfig.forceUpdateMinimumVersionKey) }
+        $isMaintenanceMode.withLock { $0 = service.getBool(forKey: AppConstants.RemoteConfig.maintenanceModeEnabledKey) }
+        $maintenanceMessage.withLock { $0 = service.getString(forKey: AppConstants.RemoteConfig.maintenanceMessageKey) }
+        $welcomeMessage.withLock { $0 = service.getString(forKey: AppConstants.RemoteConfig.welcomeMessageKey) }
+        $lastRemoteConfigSyncTimestamp.withLock { $0 = Date().timeIntervalSince1970 }
+
+        logger.info("✅ AppState synced from Remote Config (cache updated)")
+    }
+
+    // MARK: - Reset
+
+    func resetVolatileState() {
+        $selectedTabIndex.withLock { $0 = 0 }
+        $isShowingOnboarding.withLock { $0 = false }
+        $lastViewedScreen.withLock { $0 = "" }
+        $isSplashAnimationComplete.withLock { $0 = false }
+        $isValidationComplete.withLock { $0 = false }
+        logger.debug("Volatile state reset")
+    }
+
+    func clearPersistentState() {
+        $forceUpdateMinimumVersion.withLock { $0 = "" }
+        $isMaintenanceMode.withLock { $0 = false }
+        $maintenanceMessage.withLock { $0 = "" }
+        $welcomeMessage.withLock { $0 = "" }
+        $lastRemoteConfigSyncTimestamp.withLock { $0 = 0 }
+        logger.warning("⚠️ Persistent state cleared")
+    }
+}
+
+// MARK: - AppState Client (TCA Dependency)
+
+@DependencyClient
+public struct AppStateClient: Sendable {
+    // MARK: - Remote Config Sync
+    public var syncFromRemoteConfig: @Sendable (_ service: any RemoteConfigService) async -> Void = { _ in }
+
+    // MARK: - Cache Status
+    public var hasCachedRemoteConfig: @Sendable () async -> Bool = { false }
+    public var isCacheValid: @Sendable () async -> Bool = { false }
+    public var lastRemoteConfigSyncTimestamp: @Sendable () async -> TimeInterval = { 0 }
+
+    // MARK: - Persistent State (Read)
+    public var forceUpdateMinimumVersion: @Sendable () async -> String = { "" }
+    public var isMaintenanceMode: @Sendable () async -> Bool = { false }
+    public var maintenanceMessage: @Sendable () async -> String = { "" }
+    public var welcomeMessage: @Sendable () async -> String = { "" }
+    public var userLanguageCode: @Sendable () async -> String = { "" }
+
+    // MARK: - Localized Values
+    public var localizedWelcomeMessage: @Sendable () async -> String = { "" }
+    public var localizedMaintenanceMessage: @Sendable () async -> String = { "" }
+    public var effectiveLanguageCode: @Sendable () async -> String = { "en" }
+
+    // MARK: - Language Management
+    public var setUserLanguageCode: @Sendable (_ languageCode: String) async -> Void = { _ in }
+
+    // MARK: - Volatile State (Read)
+    public var selectedTabIndex: @Sendable () async -> Int = { 0 }
+    public var isShowingOnboarding: @Sendable () async -> Bool = { false }
+    public var lastViewedScreen: @Sendable () async -> String = { "" }
+    public var isInForeground: @Sendable () async -> Bool = { true }
+    public var latestStoreVersion: @Sendable () async -> String? = { nil }
+    public var isSplashAnimationComplete: @Sendable () async -> Bool = { false }
+    public var isValidationComplete: @Sendable () async -> Bool = { false }
+    public var isReadyToTransition: @Sendable () async -> Bool = { false }
+
+    // MARK: - Volatile State (Write)
+    public var setSelectedTabIndex: @Sendable (_ index: Int) async -> Void = { _ in }
+    public var setIsShowingOnboarding: @Sendable (_ value: Bool) async -> Void = { _ in }
+    public var setLastViewedScreen: @Sendable (_ screen: String) async -> Void = { _ in }
+    public var setIsInForeground: @Sendable (_ value: Bool) async -> Void = { _ in }
+    public var setLatestStoreVersion: @Sendable (_ version: String?) async -> Void = { _ in }
+    public var setSplashAnimationComplete: @Sendable (_ value: Bool) async -> Void = { _ in }
+    public var setValidationComplete: @Sendable (_ value: Bool) async -> Void = { _ in }
+
+    // MARK: - Reset
+    public var resetVolatileState: @Sendable () async -> Void = { }
+    public var clearPersistentState: @Sendable () async -> Void = { }
+}
+
+// MARK: - Live Value
+
+extension AppStateClient: DependencyKey {
+    public static let liveValue: Self = {
+        @Sendable func run<T: Sendable>(_ block: @MainActor @Sendable () -> T) async -> T {
+            await MainActor.run { block() }
+        }
+
+        return Self(
+            // Sync
+            syncFromRemoteConfig: { service in
+                await run { AppState.shared.syncFromRemoteConfig(service) }
+            },
+            // Cache Status
+            hasCachedRemoteConfig: { await run { AppState.shared.hasCachedRemoteConfig } },
+            isCacheValid: { await run { AppState.shared.isCacheValid } },
+            lastRemoteConfigSyncTimestamp: { await run { AppState.shared.lastRemoteConfigSyncTimestamp } },
+            // Persistent Read
+            forceUpdateMinimumVersion: { await run { AppState.shared.forceUpdateMinimumVersion } },
+            isMaintenanceMode: { await run { AppState.shared.isMaintenanceMode } },
+            maintenanceMessage: { await run { AppState.shared.maintenanceMessage } },
+            welcomeMessage: { await run { AppState.shared.welcomeMessage } },
+            userLanguageCode: { await run { AppState.shared.userLanguageCode } },
+            // Localized Values
+            localizedWelcomeMessage: { await run { AppState.shared.localizedWelcomeMessage } },
+            localizedMaintenanceMessage: { await run { AppState.shared.localizedMaintenanceMessage } },
+            effectiveLanguageCode: { await run { AppState.shared.effectiveLanguageCode } },
+            // Language Management
+            setUserLanguageCode: { languageCode in await run { AppState.shared.$userLanguageCode.withLock { $0 = languageCode } } },
+            // Volatile Read
+            selectedTabIndex: { await run { AppState.shared.selectedTabIndex } },
+            isShowingOnboarding: { await run { AppState.shared.isShowingOnboarding } },
+            lastViewedScreen: { await run { AppState.shared.lastViewedScreen } },
+            isInForeground: { await run { AppState.shared.isInForeground } },
+            latestStoreVersion: { await run { AppState.shared.latestStoreVersion } },
+            isSplashAnimationComplete: { await run { AppState.shared.isSplashAnimationComplete } },
+            isValidationComplete: { await run { AppState.shared.isValidationComplete } },
+            isReadyToTransition: { await run { AppState.shared.isReadyToTransition } },
+            // Volatile Write
+            setSelectedTabIndex: { index in await run { AppState.shared.$selectedTabIndex.withLock { $0 = index } } },
+            setIsShowingOnboarding: { value in await run { AppState.shared.$isShowingOnboarding.withLock { $0 = value } } },
+            setLastViewedScreen: { screen in await run { AppState.shared.$lastViewedScreen.withLock { $0 = screen } } },
+            setIsInForeground: { value in await run { AppState.shared.$isInForeground.withLock { $0 = value } } },
+            setLatestStoreVersion: { version in await run { AppState.shared.$latestStoreVersion.withLock { $0 = version } } },
+            setSplashAnimationComplete: { value in await run { AppState.shared.$isSplashAnimationComplete.withLock { $0 = value } } },
+            setValidationComplete: { value in await run { AppState.shared.$isValidationComplete.withLock { $0 = value } } },
+            // Reset
+            resetVolatileState: { await run { AppState.shared.resetVolatileState() } },
+            clearPersistentState: { await run { AppState.shared.clearPersistentState() } }
+        )
+    }()
+}
+
+// MARK: - Dependency Registration
+
+public extension DependencyValues {
+    var appState: AppStateClient {
+        get { self[AppStateClient.self] }
+        set { self[AppStateClient.self] = newValue }
+    }
+}

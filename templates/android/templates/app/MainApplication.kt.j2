@@ -1,0 +1,56 @@
+package {{ cookiecutter.base_package }}
+
+import android.app.Application
+import android.util.Log
+import dagger.hilt.android.HiltAndroidApp
+{% if cookiecutter.use_firebase == 'yes' -%}
+import com.google.firebase.FirebaseApp
+{% endif -%}
+import {{ cookiecutter.base_package }}.lifecycle.AppLifecycleManager
+import javax.inject.Inject
+
+/**
+ * Application class for {{ cookiecutter.project_name }}.
+ * Configures Hilt DI, Firebase, and app-wide initialization.
+ */
+@HiltAndroidApp
+public class MainApplication : Application() {
+    @Inject
+    public lateinit var appLifecycleManager: AppLifecycleManager
+
+    companion object {
+        private const val TAG = "TmaApplication"
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        appLifecycleManager.initialize()
+
+        // Initialize logging
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "🚀 {{ cookiecutter.project_name }} initializing in DEBUG mode")
+        }
+
+        {% if cookiecutter.use_firebase == 'yes' -%}
+        // Initialize Firebase
+        initializeFirebase()
+        {% endif -%}
+
+        Log.i(TAG, "✅ {{ cookiecutter.project_name }} initialized successfully")
+    }
+
+    {% if cookiecutter.use_firebase == 'yes' -%}
+    private fun initializeFirebase() {
+        try {
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                FirebaseApp.initializeApp(this)
+                Log.d(TAG, "Firebase initialized")
+            } else {
+                Log.d(TAG, "Firebase already initialized")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Firebase initialization skipped: ${e.message}")
+        }
+    }
+    {% endif -%}
+}

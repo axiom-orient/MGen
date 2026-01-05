@@ -1,0 +1,41 @@
+package {{ cookiecutter.base_package }}
+
+/**
+ * Application-wide constants.
+ * Centralized management of app configuration values.
+ */
+object AppConstants {
+    /**
+     * Package name for this application.
+     * Used for Play Store URL generation and deep linking.
+     */
+    const val PACKAGE_NAME = "{{ cookiecutter.base_package }}"
+
+    /**
+     * Play Store URL prefix.
+     */
+    const val PLAY_STORE_URL_PREFIX = "https://play.google.com/store/apps/details?id="
+
+    /**
+     * Get the Play Store URL for this app.
+     * Used in ForceUpdateScreen to redirect users to app update.
+     *
+     * @param packageName Optional package name override. Defaults to PACKAGE_NAME.
+     * @return Full Play Store URL
+     */
+    fun getPlayStoreUrl(packageName: String = PACKAGE_NAME): String {
+        return "$PLAY_STORE_URL_PREFIX$packageName"
+    }
+
+    /**
+     * Splash screen minimum duration in milliseconds.
+     * Ensures smooth UX even on fast networks.
+     */
+    const val SPLASH_MIN_DURATION_MS = 1500L
+
+    /**
+     * Remote Config cache TTL in milliseconds (10 minutes).
+     * Matches iOS implementation for platform parity.
+     */
+    const val CACHE_TTL_MS = 600_000L
+}

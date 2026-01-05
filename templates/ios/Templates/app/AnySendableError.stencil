@@ -1,0 +1,44 @@
+import Foundation
+
+// MARK: - {{ name }} AnySendableError
+
+/// Wrapper to make any Error Sendable-compliant for Swift 6 concurrency
+///
+/// Use this when working with errors from non-Sendable APIs that need to cross
+/// actor boundaries or be used in structured concurrency contexts.
+///
+/// Example:
+/// ```swift
+/// func fetchData() async throws -> Data {
+///     do {
+///         return try await someNonSendableAPICall()
+///     } catch {
+///         // Wrap non-Sendable error to make it Sendable
+///         throw AnySendableError(error)
+///     }
+/// }
+/// ```
+public struct AnySendableError: Error, Sendable, CustomStringConvertible {
+    /// The underlying error that was wrapped
+    public let underlyingError: Error
+
+    /// Localized description of the error
+    public let localizedDescription: String
+
+    /// Wraps any error to make it Sendable
+    /// - Parameter error: The error to wrap
+    public init(_ error: Error) {
+        self.underlyingError = error
+        self.localizedDescription = error.localizedDescription
+    }
+
+    public var description: String {
+        localizedDescription
+    }
+}
+
+extension AnySendableError: LocalizedError {
+    public var errorDescription: String? {
+        localizedDescription
+    }
+}

@@ -1,0 +1,33 @@
+import ProjectDescription
+
+let organizationName = "{{ organizationName }}"
+let bundleIdPrefix = "{{ bundleIdPrefix }}"
+let deploymentTarget: DeploymentTargets = .iOS("{{ deploymentTarget }}")
+
+let project = Project(
+    name: "SharedCore",
+    organizationName: organizationName,
+    settings: .settings(
+        base: [:],
+        defaultSettings: .recommended()
+    ),
+    targets: [
+        .target(
+            name: "SharedCore",
+            destinations: .iOS,
+            product: .framework,
+            bundleId: "{{ bundleIdPrefix }}.SharedCore",
+            deploymentTargets: deploymentTarget,
+            buildableFolders: ["Sources"],
+            dependencies: [
+                .external(name: "ComposableArchitecture"),
+                .external(name: "Dependencies"),
+                .external(name: "Sharing")
+            ],
+            settings: .settings(
+                base: [:],
+                defaultSettings: .recommended()
+            )
+        )
+    ]
+)

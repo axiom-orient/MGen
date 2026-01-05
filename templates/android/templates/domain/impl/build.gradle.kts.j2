@@ -1,0 +1,17 @@
+// Domain Impl Module: {{ domain_name }}
+
+plugins {
+    id("convention.domain.impl")
+}
+
+android {
+    namespace = "{{ base_package }}.domain.{{ domain_name_lower }}.impl"
+}
+
+dependencies {
+    // Domain API
+    implementation(projects.domain.domain{{ domain_name }}Api)
+
+    // Add service-api dependencies here
+    // implementation(projects.service.serviceNameApi)
+}

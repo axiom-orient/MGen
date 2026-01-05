@@ -1,0 +1,47 @@
+import SwiftUI
+import Foundation
+import ComposableArchitecture
+import Dependencies
+import {{ name }}FeatureInterface
+
+/// Dependency key for resolving the {{ name }} feature builder.
+public enum {{ name }}FeatureBuilderKey: DependencyKey {
+    public static let liveValue: any {{ name }}FeatureBuildable = Unimplemented{{ name }}FeatureBuilder()
+
+    #if DEBUG
+    public static let testValue: any {{ name }}FeatureBuildable = Stub{{ name }}FeatureBuilder()
+    public static let previewValue: any {{ name }}FeatureBuildable = Stub{{ name }}FeatureBuilder()
+    #endif
+}
+
+public extension DependencyValues {
+    var {{ name | lowerFirstWord }}FeatureBuilder: any {{ name }}FeatureBuildable {
+        get { self[{{ name }}FeatureBuilderKey.self] }
+        set { self[{{ name }}FeatureBuilderKey.self] = newValue }
+    }
+}
+
+private struct Unimplemented{{ name }}FeatureBuilder: {{ name }}FeatureBuildable, @unchecked Sendable {
+    @MainActor
+    func build() -> AnyView {
+        fatalError("Register a {{ name }}FeatureBuildable in the App composition root before use.")
+    }
+}
+
+#if DEBUG
+private struct Stub{{ name }}FeatureBuilder: {{ name }}FeatureBuildable, @unchecked Sendable {
+    @MainActor
+    func build() -> AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: 8) {
+                Text("{{ name }} Feature")
+                    .font(.headline)
+                Text("Stubbed builder provided by {{ name }}FeatureBuilderKey")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+        )
+    }
+}
+#endif

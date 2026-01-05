@@ -1,0 +1,23 @@
+package {{ base_package }}.domain.{{ domain_name_lower }}.impl.di
+
+import {{ base_package }}.domain.{{ domain_name_lower }}.repository.{{ domain_name }}Repository
+import {{ base_package }}.domain.{{ domain_name_lower }}.impl.repository.Default{{ domain_name }}Repository
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+/**
+ * Hilt module for {{ domain_name }} domain
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class {{ domain_name }}DomainModule {
+
+    @Binds
+    @Singleton
+    abstract fun bind{{ domain_name }}Repository(
+        impl: Default{{ domain_name }}Repository
+    ): {{ domain_name }}Repository
+}

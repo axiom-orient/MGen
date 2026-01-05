@@ -1,0 +1,121 @@
+import SwiftUI
+import Foundation
+import ComposableArchitecture
+import Dependencies
+import OSLog
+import {{ name }}FeatureInterface
+import {{ name }}FeatureInterfaceKeys
+// TODO: Import Domain/Service dependencies (Interface only)
+// Examples:
+// import ProductDomainInterface
+// import NetworkServiceInterface
+
+@Reducer
+public struct {{ name }}Feature {
+    public init() {}
+
+    // MARK: - State
+
+    @ObservableState
+    public struct State: Equatable, Sendable {
+        public var isLoading: Bool = false
+
+        // TODO: Add your state properties
+        // Examples:
+        // public var data: [Item] = []
+        // public var errorMessage: String?
+        // public var selectedId: String?
+
+        public init() {}
+    }
+
+    // MARK: - Action
+
+    public enum Action: Sendable {
+        case view(ViewAction)
+        case `internal`(InternalAction)
+        case delegate(DelegateAction)
+    }
+
+    public enum ViewAction: Equatable, Sendable {
+        case onAppear
+
+        // TODO: Add view actions
+        // Examples:
+        // case buttonTapped
+        // case textChanged(String)
+        // case itemSelected(String)
+    }
+
+    public enum InternalAction: Equatable, Sendable {
+        // TODO: Add internal actions for side effects
+        // Examples:
+        // case dataLoaded([Item])
+        // case errorOccurred(String)
+        // case taskCompleted
+    }
+
+    public enum DelegateAction: Equatable, Sendable {
+        // TODO: Add delegate actions for parent communication
+        // Examples:
+        // case didComplete
+        // case didCancel
+        // case didSelectItem(String)
+    }
+
+    // MARK: - Dependencies
+
+    // TODO: Inject Domain/Service dependencies
+    // Examples:
+    // @Dependency(\.productUseCase) var productUseCase
+    // @Dependency(\.networkService) var networkService
+    // @Dependency(\.continuousClock) var clock
+
+    // MARK: - Reducer
+
+    public var body: some ReducerOf<Self> {
+        Reduce { state, action in
+            switch action {
+            case .view(.onAppear):
+                state.isLoading = true
+
+                // TODO: Implement onAppear logic
+                // Example:
+                // return .run { send in
+                //     do {
+                //         let data = try await productUseCase.fetchAll()
+                //         await send(.internal(.dataLoaded(data)))
+                //     } catch {
+                //         await send(.internal(.errorOccurred(error.localizedDescription)))
+                //     }
+                // }
+
+                return .none
+
+            case .view:
+                // TODO: Handle other view actions
+                return .none
+
+            case .internal:
+                // TODO: Handle internal actions
+                // Example:
+                // case let .dataLoaded(items):
+                //     state.data = items
+                //     state.isLoading = false
+                //     return .none
+
+                return .none
+
+            case .delegate:
+                // Delegate actions are handled by parent
+                return .none
+            }
+        }
+
+        // TODO: Compose child feature reducers if needed
+        // Example:
+        // Scope(state: \.child, action: \.internal.child) {
+        //     ChildFeature()
+        // }
+    }
+}

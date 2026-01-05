@@ -1,0 +1,87 @@
+package {{ cookiecutter.base_package }}.deeplink
+
+import java.time.LocalDate
+import java.time.LocalDateTime
+
+/**
+ * Deep Link Route definitions.
+ * Android equivalent of iOS DeepLinkRoute enum.
+ *
+ * Type-safe representation of all supported deep link destinations.
+ * Add new routes as the app grows.
+ */
+sealed interface DeepLinkRoute {
+
+    /**
+     * Home screen (default destination)
+     */
+    data class Home(
+        val date: LocalDate? = null
+    ) : DeepLinkRoute
+
+    /**
+     * Statistics/Analytics screen
+     */
+    public data class Stats(
+        public val date: LocalDate? = null,
+        public val mode: StatsViewMode? = null
+    ) : DeepLinkRoute
+
+    /**
+     * Item detail screen
+     */
+    public data class ItemDetail(
+        public val itemId: String
+    ) : DeepLinkRoute
+
+    /**
+     * Add/Create item screen
+     */
+    public data class AddItem(
+        public val startDate: LocalDateTime? = null,
+        public val durationMinutes: Int? = null,
+        public val type: ItemType? = null
+    ) : DeepLinkRoute
+
+    /**
+     * Settings screen
+     */
+    data object Settings : DeepLinkRoute
+
+    /**
+     * Unknown/Unsupported route
+     */
+    data class Unknown(
+        val url: String
+    ) : DeepLinkRoute
+}
+
+/**
+ * Statistics view modes
+ */
+enum class StatsViewMode {
+    WEEK,
+    MONTH,
+    YEAR;
+
+    companion object {
+        fun fromString(value: String?): StatsViewMode? {
+            return entries.find { it.name.equals(value, ignoreCase = true) }
+        }
+    }
+}
+
+/**
+ * Generic item types for deep linking
+ */
+enum class ItemType {
+    DEFAULT,
+    FOCUS,
+    REST;
+
+    companion object {
+        fun fromString(value: String?): ItemType? {
+            return entries.find { it.name.equals(value, ignoreCase = true) }
+        }
+    }
+}

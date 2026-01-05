@@ -1,0 +1,81 @@
+import XCTest
+import ComposableArchitecture
+import Dependencies
+@testable import {{ name }}ServiceSources
+@testable import {{ name }}ServiceInterface
+
+@Suite("{{ name }}Service Tests")
+struct {{ name }}ServiceTests {
+
+    @Test("Service initialization")
+    func serviceInitialization() {
+        let service = Live{{ name }}Service()
+
+        // TODO: Test service initialization
+        // #expect(service != nil)
+    }
+
+    @Test("Service basic operation")
+    func basicOperation() async throws {
+        let service = Live{{ name }}Service()
+
+        // TODO: Test basic service operation
+        // Example:
+        // let result = try await service.performOperation()
+        // #expect(result != nil)
+    }
+
+    @Test("Service with mock dependencies")
+    func withMockDependencies() async throws {
+        // TODO: Test service with mocked dependencies
+        // Example:
+        // let mockDependency = MockDependency()
+        // let service = Live{{ name }}Service(dependency: mockDependency)
+        // let result = try await service.performOperation()
+        // #expect(mockDependency.callCount == 1)
+    }
+
+    @Test("Service error handling")
+    func errorHandling() async throws {
+        let service = Live{{ name }}Service()
+
+        // TODO: Test error scenarios
+        // Example:
+        // await #expect(throws: {{ name }}ServiceError.self) {
+        //     try await service.failingOperation()
+        // }
+    }
+
+    @Test("Service concurrent operations")
+    func concurrentOperations() async throws {
+        let service = Live{{ name }}Service()
+
+        // TODO: Test concurrent access
+        // Example:
+        // await withTaskGroup(of: Void.self) { group in
+        //     for _ in 0..<10 {
+        //         group.addTask {
+        //             try? await service.performOperation()
+        //         }
+        //     }
+        // }
+    }
+
+    @Test("Service cleanup and teardown")
+    func cleanup() async throws {
+        let service = Live{{ name }}Service()
+
+        // TODO: Test service cleanup
+        // Example:
+        // await service.cleanup()
+        // #expect(service.isCleanedUp == true)
+    }
+
+    // TODO: Add more service tests
+    // Examples:
+    // - Network request/response handling
+    // - Caching behavior
+    // - Retry logic
+    // - Timeout handling
+    // - Authentication/authorization
+}

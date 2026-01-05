@@ -1,0 +1,17 @@
+import SwiftUI
+import ComposableArchitecture
+import Dependencies
+import DailyActionList
+
+struct MainScreenView: View {
+    @Bindable var store: StoreOf<AppReducer>
+
+    var body: some View {
+        NavigationStack {
+            DailyActionListView(
+                store: store.scope(state: \.dailyActionList, action: \.dailyActionList)
+            )
+            .navigationTitle("{{ name }}")
+        }
+    }
+}

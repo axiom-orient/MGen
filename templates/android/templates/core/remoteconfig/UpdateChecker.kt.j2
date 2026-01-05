@@ -1,0 +1,77 @@
+package {{ cookiecutter.base_package }}.core.remoteconfig
+
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Update Checker - Single Responsibility for version comparison.
+ * Decoupled from Remote Config and UI concerns.
+ */
+interface UpdateChecker {
+    /**
+     * Check if the current app version requires a forced update.
+     *
+     * @param currentVersion The current app version (e.g., "1.2.3")
+     * @param minimumVersion The minimum required version from Remote Config
+     * @return true if update is required (current < minimum)
+     */
+    fun isUpdateRequired(currentVersion: String, minimumVersion: String): Boolean
+
+    /**
+     * Get the Play Store URL for this app.
+     */
+    fun getStoreUrl(packageName: String): String
+
+    /**
+     * Checks if an update is available and has a higher version code than current.
+     */
+    suspend fun isUpdateAvailable(): Boolean
+}
+
+/**
+ * Default implementation using semantic versioning comparison.
+ */
+@Singleton
+public class DefaultUpdateChecker @Inject constructor(
+    @ApplicationContext private val context: Context
+) : UpdateChecker {
+
+    override fun isUpdateRequired(currentVersion: String, minimumVersion: String): Boolean {
+        if (minimumVersion.isBlank()) return false
+
+        val currentParts = parseVersion(currentVersion)
+        val minimumParts = parseVersion(minimumVersion)
+
+        val maxLength = maxOf(currentParts.size, minimumParts.size)
+
+        for (i in 0 until maxLength) {
+            val current = currentParts.getOrElse(i) { 0 }
+            val minimum = minimumParts.getOrElse(i) { 0 }
+
+            if (current < minimum) return true
+            if (current > minimum) return false
+        }
+
+        return false // Versions are equal
+    }
+
+    override fun getStoreUrl(packageName: String): String {
+        return "https://play.google.com/store/apps/details?id=$packageName"
+    }
+
+    override suspend fun isUpdateAvailable(): Boolean {
+        // TODO: Implement Play Store version check
+        return false
+    }
+
+    private fun parseVersion(version: String): List<Int> {
+        return version
+            .split(".")
+            .mapNotNull { part ->
+                // Handle versions like "1.2.3-beta" by taking only numeric part
+                part.takeWhile { it.isDigit() }.toIntOrNull()
+            }
+    }
+}

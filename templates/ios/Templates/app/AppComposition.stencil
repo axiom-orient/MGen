@@ -1,0 +1,202 @@
+import Foundation
+import OSLog
+import ComposableArchitecture
+import Dependencies
+import DailyAction
+import AppDataService
+
+public enum AppComposition {
+  public struct Configuration: Sendable {
+    public var analyticsProviders: [any AnalyticsProvider]
+    public var remoteConfigDefaults: [String: RemoteConfigValue]
+    public var minimumRemoteConfigFetchInterval: TimeInterval
+    public var remoteConfigFetchTimeout: TimeInterval
+
+    public init(
+      analyticsProviders: [any AnalyticsProvider] = [],
+      remoteConfigDefaults: [String: RemoteConfigValue] = [:],
+      minimumRemoteConfigFetchInterval: TimeInterval = 3600,
+      remoteConfigFetchTimeout: TimeInterval = 60
+    ) {
+      self.analyticsProviders = analyticsProviders
+      self.remoteConfigDefaults = remoteConfigDefaults
+      self.minimumRemoteConfigFetchInterval = minimumRemoteConfigFetchInterval
+      self.remoteConfigFetchTimeout = max(remoteConfigFetchTimeout, 1)
+    }
+  }
+
+  @MainActor
+  public static func configure(_ values: inout DependencyValues, configuration: Configuration = .init()) {
+    values.lifecycleService = DefaultLifecycleService()
+    // NOTE: deepLink (DeepLinkClient) uses @DependencyClient macro which auto-provides liveValue
+
+    if configuration.analyticsProviders.isEmpty {
+      values.analyticsService = CompositeAnalyticsService()
+    } else {
+      values.analyticsService = CompositeAnalyticsService(providers: configuration.analyticsProviders)
+    }
+
+    #if canImport(FirebaseRemoteConfig)
+    let defaults = configuration.remoteConfigDefaults.isEmpty
+      ? loadRemoteConfigDefaults()
+      : configuration.remoteConfigDefaults
+    let resolvedDefaults = convertRemoteConfigDefaults(defaults)
+    if let adapter = try? FirebaseRemoteConfigAdapter(
+      defaults: resolvedDefaults,
+      minimumFetchInterval: configuration.minimumRemoteConfigFetchInterval,
+      fetchTimeout: configuration.remoteConfigFetchTimeout
+    ) {
+      values.remoteConfigService = adapter
+    } else {
+      values.remoteConfigService = NoopRemoteConfigService(defaults: defaults)
+    }
+    #else
+    let defaults = configuration.remoteConfigDefaults.isEmpty
+      ? loadRemoteConfigDefaults()
+      : configuration.remoteConfigDefaults
+    values.remoteConfigService = NoopRemoteConfigService(defaults: defaults)
+    #endif
+
+    values.appLogger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "App")
+  }
+
+  @MainActor
+  public static func configureAll(_ values: inout DependencyValues) {
+    configure(&values)
+    configureDomains(&values)
+    configureServices(&values)
+    configureFeatures(&values)
+  }
+
+  // MARK: - Domain Dependencies
+
+  /// Configure Domain Use Cases (liveValue registration)
+  ///
+  /// Domains use TestDependencyKey in their Interface target.
+  /// The App target provides the liveValue via DependencyKey conformance.
+  ///
+  /// Example:
+  /// ```swift
+  /// import UserDomainInterface
+  /// import UserDomainSources
+  ///
+  /// extension UserUseCase: DependencyKey {
+  ///   public static var liveValue: any UserUseCase {
+  ///     DefaultUserUseCase()
+  ///   }
+  /// }
+  /// ```
+  @MainActor
+  private static func configureDomains(_ values: inout DependencyValues) {
+    // TODO: Register domain use case live implementations here
+    
+    // Sample App: DailyAction Wiring
+    values.dailyActionRepository = DailyActionRepositoryLive()
+  }
+
+  // MARK: - Service Dependencies
+
+  /// Configure Services (liveValue registration)
+  ///
+  /// Services use TestDependencyKey in their Interface target.
+  /// The App target provides the liveValue via DependencyKey conformance.
+  ///
+  /// Example:
+  /// ```swift
+  /// import AuthServiceInterface
+  /// import AuthServiceSources
+  ///
+  /// extension AuthService: DependencyKey {
+  ///   public static var liveValue: any AuthService {
+  ///     LiveAuthService()
+  ///   }
+  /// }
+  /// ```
+  @MainActor
+  private static func configureServices(_ values: inout DependencyValues) {
+    // TODO: Register service live implementations here
+    // Example:
+    // values.authService = LiveAuthService()
+  }
+
+  // MARK: - Feature Dependencies
+
+  /// Configure Feature Builders (liveValue registration)
+  ///
+  /// Features use TestDependencyKey in their Interface.
+  /// The App target provides the liveValue via DependencyKey conformance.
+  ///
+  /// Example:
+  /// ```swift
+  /// import HomeFeature
+  ///
+  /// extension HomeFeatureBuildable: DependencyKey {
+  ///   public static var liveValue: any HomeFeatureBuildable {
+  ///     HomeFeatureBuilder()
+  ///   }
+  /// }
+  /// ```
+  @MainActor
+  private static func configureFeatures(_ values: inout DependencyValues) {
+    // TODO: Register feature builders here
+    // Example:
+    // values.homeFeatureBuilder = HomeFeatureBuilder()
+  }
+}
+
+#if canImport(FirebaseRemoteConfig)
+private func loadRemoteConfigDefaults() -> [String: RemoteConfigValue] {
+  guard
+    let url = Bundle.main.url(forResource: "RemoteConfigDefaults", withExtension: "plist"),
+    let data = try? Data(contentsOf: url),
+    let defaults = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
+  else {
+    return [:]
+  }
+
+  var result: [String: RemoteConfigValue] = [:]
+  for (key, value) in defaults {
+    switch value {
+    case let boolValue as Bool:
+      result[key] = .bool(boolValue)
+    case let stringValue as String:
+      result[key] = .string(stringValue)
+    case let number as NSNumber:
+      result[key] = .number(number.doubleValue)
+    default:
+      continue
+    }
+  }
+  return result
+}
+
+private func convertRemoteConfigDefaults(_ defaults: [String: RemoteConfigValue]) -> [String: any Sendable] {
+  var converted: [String: any Sendable] = [:]
+  for (key, value) in defaults {
+    switch value {
+    case let .bool(bool):
+      converted[key] = bool
+    case let .string(string):
+      converted[key] = string
+    case let .number(number):
+      converted[key] = number
+    case let .data(data):
+      converted[key] = data
+    }
+  }
+  return converted
+}
+#else
+private func loadRemoteConfigDefaults() -> [String: RemoteConfigValue] { [:] }
+#endif
+
+private enum AppLoggerKey: DependencyKey {
+  static let liveValue: Logger = Logger(subsystem: "{{ bundleIdPrefix }}.{{ name | lowercase }}", category: "App")
+}
+
+public extension DependencyValues {
+  var appLogger: Logger {
+    get { self[AppLoggerKey.self] }
+    set { self[AppLoggerKey.self] = newValue }
+  }
+}

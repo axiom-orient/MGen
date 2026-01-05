@@ -1,0 +1,237 @@
+import Foundation
+
+// MARK: - Deep Link Configuration
+
+/// Configuration for Universal Links domain handling
+public enum DeepLinkConfig {
+    /// Your Universal Links domain (e.g., "example.com")
+    public static let universalLinksDomain = "{{ bundleIdPrefix | replace: '.', '-' }}.app"
+    
+    /// Custom URL scheme (e.g., "myapp://")
+    public static let customScheme = "{{ name | lowercase }}"
+    
+    /// Paths that should be handled by the app
+    public static let supportedPaths = ["/home", "/stats", "/item", "/add", "/settings"]
+}
+
+// MARK: - Deep Link Store
+
+/// Manages pending URLs from AppDelegate - bridging UIKit and SwiftUI
+@MainActor
+final class DeepLinkStore: ObservableObject {
+    @Published private(set) var pendingURL: URL?
+    
+    func publish(_ url: URL) {
+        pendingURL = url
+    }
+    
+    func clear() {
+        pendingURL = nil
+    }
+}
+
+// MARK: - Deferred Deep Link
+
+/// Stores deep link for first-launch routing (e.g., from marketing campaign)
+public struct DeferredDeepLink: Codable, Equatable, Sendable {
+    public let url: URL
+    public let source: Source
+    public let timestamp: Date
+    
+    public enum Source: String, Codable, Sendable {
+        case universalLink
+        case customScheme
+        case pushNotification
+        case clipboard
+    }
+    
+    public init(url: URL, source: Source, timestamp: Date = Date()) {
+        self.url = url
+        self.source = source
+        self.timestamp = timestamp
+    }
+}
+
+// MARK: - Stats View Mode
+
+public enum StatsViewMode: String, Sendable, CaseIterable {
+    case week
+    case month
+    case year
+}
+
+// MARK: - Item Type
+
+public enum ItemType: String, Sendable, CaseIterable {
+    case `default`
+    case focus
+    case rest
+}
+
+// MARK: - Deep Link Route
+
+/// Strongly-typed deep link destinations
+public enum DeepLinkRoute: Equatable, Sendable {
+    case home(date: Date?)
+    case stats(date: Date?, mode: StatsViewMode?)
+    case itemDetail(id: String)
+    case addItem(start: Date?, durationMinutes: Int?, type: ItemType?)
+    case settings
+    case unknown(path: String)
+}
+
+// MARK: - Deep Link Parser (Functional)
+
+/// Pure functional parser for URLs → DeepLinkRoute
+public enum DeepLinkParser {
+    
+    /// Parse any URL (custom scheme or universal link) into a route
+    public static func parse(_ url: URL) -> DeepLinkRoute {
+        let components = extractComponents(from: url)
+        let query = extractQueryItems(from: url)
+        return route(from: components, query: query)
+    }
+    
+    /// Check if URL is a supported Universal Link
+    public static func isUniversalLink(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == DeepLinkConfig.universalLinksDomain ||
+               host.hasSuffix(".\(DeepLinkConfig.universalLinksDomain)")
+    }
+    
+    /// Check if URL is a supported Custom Scheme
+    public static func isCustomScheme(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == DeepLinkConfig.customScheme
+    }
+    
+    // MARK: - Private Parsing Functions
+    
+    private static func extractComponents(from url: URL) -> [String] {
+        var components: [String] = []
+        
+        // For custom schemes, host is the first path component
+        if let scheme = url.scheme?.lowercased(),
+           scheme != "http", scheme != "https",
+           let host = url.host, !host.isEmpty {
+            components.append(host)
+        }
+        
+        // Add path components
+        let pathParts = url.pathComponents.filter { $0 != "/" }
+        components.append(contentsOf: pathParts)
+        
+        return components.map { $0.lowercased() }
+    }
+    
+    private static func extractQueryItems(from url: URL) -> [String: String] {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .reduce(into: [:]) { result, item in
+                if let value = item.value, !value.isEmpty {
+                    result[item.name.lowercased()] = value
+                }
+            } ?? [:]
+    }
+    
+    private static func route(from components: [String], query: [String: String]) -> DeepLinkRoute {
+        let date = parseDate(query["date"])
+        let start = parseDate(query["start"])
+        let duration = query["duration"].flatMap(Int.init)
+        let itemType = query["type"].flatMap { ItemType(rawValue: $0.lowercased()) }
+        let statsMode = query["mode"].flatMap { StatsViewMode(rawValue: $0.lowercased()) }
+        
+        switch components {
+        case [], ["home"]:
+            return .home(date: date)
+            
+        case ["stats"]:
+            return .stats(date: date, mode: statsMode)
+            
+        case ["add"]:
+            return .addItem(start: start, durationMinutes: duration, type: itemType)
+            
+        case ["settings"]:
+            return .settings
+            
+        case ["item"] where query["id"] != nil:
+            return .itemDetail(id: query["id"]!)
+            
+        case let path where path.count == 2 && path[0] == "item":
+            return .itemDetail(id: path[1])
+            
+        default:
+            return .unknown(path: components.joined(separator: "/"))
+        }
+    }
+    
+    // MARK: - Date Parsing
+    
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return iso8601Formatter.date(from: value) ?? dateOnlyFormatter.date(from: value)
+    }
+    
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = .current
+        return formatter
+    }()
+    
+    private static let dateOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+}
+
+// MARK: - URL Builder (for creating deep links)
+
+public extension DeepLinkRoute {
+    /// Generate URL for this route using custom scheme
+    func toURL() -> URL? {
+        var components = URLComponents()
+        components.scheme = DeepLinkConfig.customScheme
+        
+        switch self {
+        case let .home(date):
+            components.host = "home"
+            if let date { components.queryItems = [.init(name: "date", value: formatDate(date))] }
+            
+        case let .stats(date, mode):
+            components.host = "stats"
+            var items: [URLQueryItem] = []
+            if let date { items.append(.init(name: "date", value: formatDate(date))) }
+            if let mode { items.append(.init(name: "mode", value: mode.rawValue)) }
+            if !items.isEmpty { components.queryItems = items }
+            
+        case let .itemDetail(id):
+            components.host = "item"
+            components.path = "/\(id)"
+            
+        case let .addItem(start, duration, type):
+            components.host = "add"
+            var items: [URLQueryItem] = []
+            if let start { items.append(.init(name: "start", value: formatDate(start))) }
+            if let duration { items.append(.init(name: "duration", value: String(duration))) }
+            if let type { items.append(.init(name: "type", value: type.rawValue)) }
+            if !items.isEmpty { components.queryItems = items }
+            
+        case .settings:
+            components.host = "settings"
+            
+        case .unknown:
+            return nil
+        }
+        
+        return components.url
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+}

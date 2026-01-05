@@ -1,0 +1,70 @@
+import Foundation
+import OSLog
+import ComposableArchitecture
+import Dependencies
+import {{ name }}DomainInterface
+// TODO: Import required Service interfaces
+// Example:
+// import DataServiceInterface
+
+/// Default implementation of {{ name }}UseCase
+public final class Default{{ name }}UseCase: {{ name }}UseCase {
+
+    // MARK: - Dependencies
+
+    // TODO: Inject required services via @Dependency or init
+    // Examples:
+    // @Dependency(\.dataService) private var dataService
+    // @Dependency(\.apiClient) private var apiClient
+    // private let repository: {{ name }}Repository
+
+    public init() {}
+
+    // MARK: - UseCase Implementation
+
+    public func fetch(id: String) async throws -> {{ name }} {
+        // TODO: Implement fetch logic
+        // Example:
+        // return try await dataService.fetch{{ name }}(id: id)
+        throw {{ name }}DomainError.notFound(id)
+    }
+
+    public func fetchAll() async throws -> [{{ name }}] {
+        // TODO: Implement fetchAll logic
+        // Example:
+        // return try await dataService.fetchAll{{ name }}s()
+        return []
+    }
+
+    public func create(_ entity: {{ name }}) async throws -> {{ name }} {
+        // TODO: Implement create logic with validation
+        // Example:
+        // try validate(entity)
+        // return try await dataService.create(entity)
+        return entity
+    }
+
+    public func update(_ entity: {{ name }}) async throws -> {{ name }} {
+        // TODO: Implement update logic
+        // Example:
+        // try validate(entity)
+        // return try await dataService.update(entity)
+        return entity
+    }
+
+    public func delete(id: String) async throws {
+        // TODO: Implement delete logic
+        // Example:
+        // try await dataService.delete{{ name }}(id: id)
+    }
+
+    // MARK: - Private Helpers
+
+    // TODO: Add validation or business logic helpers
+    // Example:
+    // private func validate(_ entity: {{ name }}) throws {
+    //     guard !entity.id.isEmpty else {
+    //         throw {{ name }}DomainError.invalidInput
+    //     }
+    // }
+}

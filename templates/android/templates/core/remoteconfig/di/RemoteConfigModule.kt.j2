@@ -1,0 +1,38 @@
+package {{ cookiecutter.base_package }}.core.remoteconfig.di
+
+import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigRepository
+import {{ cookiecutter.base_package }}.core.remoteconfig.DefaultUpdateChecker
+import {{ cookiecutter.base_package }}.core.remoteconfig.UpdateChecker
+import {{ cookiecutter.base_package }}.core.remoteconfig.FirebaseRemoteConfigRepository
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+/**
+ * Hilt module for Remote Config and Update Checker dependency injection.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class RemoteConfigModule {
+
+    /**
+     * Binds RemoteConfigRepository implementation.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindRemoteConfigRepository(
+        impl: FirebaseRemoteConfigRepository
+    ): RemoteConfigRepository
+
+    /**
+     * Binds DefaultUpdateChecker as the UpdateChecker implementation.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindUpdateChecker(
+        impl: DefaultUpdateChecker
+    ): UpdateChecker
+}
+
