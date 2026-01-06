@@ -6,11 +6,13 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -20,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,36 +67,101 @@ import javax.inject.Inject
  * ─────────────────────────────────────────────────────────────
  * - lifecycle/AppLifecycleManager.kt  (Lifecycle orchestration)
  * - lifecycle/UpdateChecker.kt        (Version comparison logic)
-
  * - RemoteConfigRepository.kt         (Firebase integration)
  *
  * ============================================================
  */
 
 /**
- * Main Activity with lifecycle-aware startup sequence.
- * Android equivalent of iOS App + AppDelegate pattern.
+ * Main Activity with edge-to-edge display and lifecycle-aware startup.
+ *
+ * Implements modern Android UI patterns with Jetpack Compose and manages
+ * the application startup sequence through [AppLifecycleManager].
+ *
+ * ## Architecture
+ * - **Edge-to-Edge Display**: Draws behind system bars with WindowInsets
+ * - **Lifecycle-Aware**: Integrates with AppLifecycleManager for state management
+ * - **Deep Link Support**: Handles app and web deep links
+ * - **Startup Routing**: Shows appropriate screens based on AppStartupState
+ *
+ * ## Startup State Flow
+ * ```
+ * Splash → Loading → {
+ *     Ready          → MainScreen
+ *     Maintenance    → MaintenanceScreen
+ *     ForceUpdate    → ForceUpdateScreen
+ *     Error          → ErrorScreen (with retry)
+ * }
+ * ```
+ *
+ * ## Edge-to-Edge Implementation
+ * Uses `enableEdgeToEdge()` and WindowInsets to draw content behind system bars
+ * while maintaining safe areas for interactive elements.
+ *
+ * ## Lifecycle Integration
+ * - **onCreate**: Initializes cold start sequence
+ * - **onStart**: Triggers foreground event (via repeatOnLifecycle)
+ * - **onStop**: Triggers background event
+ * - **onNewIntent**: Handles deep links while app is running
+ *
+ * ## Usage
+ * This Activity is automatically launched by the system. No manual instantiation needed.
+ * All startup logic is delegated to AppLifecycleManager for separation of concerns.
+ *
+ * @see AppLifecycleManager
+ * @see AppStartupState
+ * @see DeepLinkParser
  */
 @AndroidEntryPoint
 public class MainActivity : ComponentActivity() {
 
+    /**
+     * Application state manager.
+     * Injected by Hilt for reactive state access.
+     */
     @Inject
     public lateinit var appState: AppState
 
+    /**
+     * Deep link parser for handling app and web links.
+     * Injected by Hilt for route extraction.
+     */
     @Inject
     public lateinit var deepLinkParser: DeepLinkParser
 
+    /**
+     * Application lifecycle orchestrator.
+     * Manages cold start sequence and app state transitions.
+     */
     @Inject
-    lateinit var lifecycleManager: AppLifecycleManager
+    public lateinit var lifecycleManager: AppLifecycleManager
 
-    companion object {
+    public companion object {
         private const val TAG = "MainActivity"
     }
 
+    /**
+     * Activity creation with splash screen and edge-to-edge setup.
+     *
+     * ## Initialization Sequence
+     * 1. Install splash screen (shown until first frame)
+     * 2. Enable edge-to-edge display
+     * 3. Initialize cold start sequence
+     * 4. Handle launch deep link
+     * 5. Set up Compose UI with lifecycle awareness
+     *
+     * @param savedInstanceState Saved state for configuration changes
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Install splash screen before super.onCreate() for seamless transition
         val splashScreen = installSplashScreen()
+
         super.onCreate(savedInstanceState)
+
+        // Enable edge-to-edge display (draws behind system bars)
         enableEdgeToEdge()
+
+        Log.d(TAG, "MainActivity created")
 
         // Initialize cold start sequence
         lifecycleManager.initialize()
@@ -106,47 +174,103 @@ public class MainActivity : ComponentActivity() {
             val lifecycleOwner = LocalLifecycleOwner.current
 
             // Handle foreground/background transitions
+            // repeatOnLifecycle ensures proper cleanup when lifecycle moves below STARTED
             LaunchedEffect(lifecycleOwner) {
                 lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    Log.d(TAG, "App entered foreground")
                     lifecycleManager.onForeground()
                 }
             }
 
             TmaTheme(darkTheme = isSystemInDarkTheme()) {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0) // Custom insets handling
+                ) { innerPadding ->
                     AppContent(
                         startupState = startupState,
                         onRetry = { lifecycleManager.retry() },
-                        modifier = Modifier.padding(innerPadding)
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
                     )
                 }
             }
         }
     }
 
+    /**
+     * Handles new intents when Activity is already running.
+     *
+     * Called when Activity is in singleTop launch mode and receives a new intent.
+     * Processes deep links while app is in foreground.
+     *
+     * @param intent New intent with potential deep link data
+     */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        Log.d(TAG, "Received new intent")
         handleDeepLink(intent)
     }
 
+    /**
+     * Handles app moving to background.
+     *
+     * Called when Activity is no longer visible to the user.
+     * Notifies AppLifecycleManager to update background state.
+     */
     override fun onStop() {
         super.onStop()
+        Log.d(TAG, "App entered background")
         lifecycleManager.onBackground()
     }
 
+    /**
+     * Parses and handles deep link from intent.
+     *
+     * Validates the deep link URI and extracts route information.
+     * Navigation is deferred until app reaches Ready state.
+     *
+     * ## Supported Deep Links
+     * - App scheme: `yourapp://path`
+     * - HTTPS: `https://yourdomain.com/path`
+     *
+     * @param intent Intent containing potential deep link data
+     */
     private fun handleDeepLink(intent: Intent?) {
-        intent?.data?.let { uri ->
-            if (DeepLinkParser.isValidDeepLink(uri)) {
-                val route = DeepLinkParser.parse(uri)
-                Log.d(TAG, "Received deep link: $uri -> $route")
-                // TODO: Navigate to route when app is ready
+        try {
+            intent?.data?.let { uri ->
+                if (DeepLinkParser.isValidDeepLink(uri)) {
+                    val route = DeepLinkParser.parse(uri)
+                    Log.i(TAG, "Deep link received: $uri → $route")
+                    // TODO: Navigate to route when app reaches Ready state
+                    // Consider using a navigation state holder to queue the route
+                } else {
+                    Log.w(TAG, "Invalid deep link format: $uri")
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to handle deep link", e)
         }
     }
 }
 
 /**
  * App content with startup state-based routing.
+ *
+ * Displays different screens based on the current startup state.
+ * All state transitions are managed by AppLifecycleManager.
+ *
+ * ## State Routing
+ * - **Splash/Loading**: Shows branded splash with progress
+ * - **Maintenance**: Shows maintenance message with refresh
+ * - **Error**: Shows error with retry button
+ * - **ForceUpdate**: Shows update prompt with store link
+ * - **Ready**: Shows main app content
+ *
+ * @param startupState Current startup state from AppLifecycleManager
+ * @param onRetry Callback to retry failed startup sequence
+ * @param modifier Modifier for the root container
  */
 @Composable
 private fun AppContent(
@@ -194,9 +318,35 @@ private fun AppContent(
 
 /**
  * Main screen content shown after successful startup.
+ *
+ * **🔧 CUSTOMIZE THIS FOR YOUR APP**
+ *
+ * Replace this placeholder with your actual main screen UI:
+ * - Navigation graph
+ * - Bottom navigation
+ * - Tab layout
+ * - Feature modules
+ *
+ * ## Example Structure
+ * ```kotlin
+ * @Composable
+ * fun MainScreen(modifier: Modifier = Modifier) {
+ *     val navController = rememberNavController()
+ *     Scaffold(
+ *         bottomBar = { BottomNavigationBar() }
+ *     ) {
+ *         NavHost(navController, startDestination = "home") {
+ *             composable("home") { HomeScreen() }
+ *             composable("profile") { ProfileScreen() }
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * @param modifier Modifier for the root container
  */
 @Composable
-fun MainScreen(modifier: Modifier = Modifier) {
+public fun MainScreen(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -208,6 +358,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Preview for MainScreen in Android Studio.
+ */
 @Preview(showBackground = true)
 @Composable
 private fun MainScreenPreview() {

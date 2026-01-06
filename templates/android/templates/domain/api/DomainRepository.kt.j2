@@ -4,11 +4,121 @@ import {{ base_package }}.domain.{{ domain_name_lower }}.model.{{ domain_name }}
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Repository interface for {{ domain_name }}
+ * Repository interface for {{ domain_name }} domain.
+ *
+ * Defines the contract for data operations in the domain layer.
+ * Abstracts data source details (Room, Retrofit, etc.) from domain logic.
+ *
+ * ## Repository Pattern
+ * - **Interface in Domain**: Defines what data operations are needed
+ * - **Implementation in Data**: Handles actual data source interactions
+ * - **Dependency Inversion**: Domain depends on abstractions, not implementations
+ *
+ * ## Return Types
+ * - **Flow**: For reactive streams that emit updates (e.g., observeAll)
+ * - **Result**: For one-shot operations that can fail (fetch, save)
+ * - **Direct Types**: For operations guaranteed to succeed (local cache)
+ *
+ * ## Error Handling
+ * Repository implementations should return `Result<T>` for operations that can fail:
+ * ```kotlin
+ * override suspend fun fetchFromNetwork(): Result<{{ domain_name }}> = runCatching {
+ *     api.get{{ domain_name }}()
+ * }
+ * ```
+ *
+ * ## Offline-First Pattern
+ * Repositories often implement offline-first strategy:
+ * 1. Emit cached data immediately via Flow
+ * 2. Fetch fresh data from network in background
+ * 3. Update cache and Flow emits new data
+ *
+ * ## Testing
+ * Easy to mock for testing:
+ * ```kotlin
+ * class Fake{{ domain_name }}Repository : {{ domain_name }}Repository {
+ *     private val data = mutableListOf<{{ domain_name }}>()
+ *     override fun getAll() = flowOf(data)
+ * }
+ * ```
+ *
+ * @see {{ domain_name }}
  */
 public interface {{ domain_name }}Repository {
+
+    /**
+     * Observes all {{ domain_name_lower }} items.
+     *
+     * Emits new list whenever data changes (insert, update, delete).
+     * Flow is infinite and does not complete unless repository is closed.
+     *
+     * ## Usage
+     * ```kotlin
+     * repository.getAll()
+     *     .map { it.filter { item -> item.isValid() } }
+     *     .collect { items -> updateUI(items) }
+     * ```
+     *
+     * @return Flow emitting list of all items, empty list if none
+     */
     public fun getAll(): Flow<List<{{ domain_name }}>>
+
+    /**
+     * Gets a single {{ domain_name_lower }} by ID.
+     *
+     * One-shot query, does not observe changes.
+     * Returns null if item not found.
+     *
+     * @param id Unique identifier
+     * @return Item if found, null otherwise
+     */
     public suspend fun getById(id: String): {{ domain_name }}?
+
+    /**
+     * Saves (insert or update) a {{ domain_name_lower }} item.
+     *
+     * If item with same ID exists, updates it. Otherwise inserts new item.
+     * Operation is atomic and thread-safe.
+     *
+     * ## Error Handling
+     * Implementations may throw exceptions for:
+     * - Network failures (if syncing to server)
+     * - Database constraints (if validation fails)
+     * - Storage limits (if disk full)
+     *
+     * Callers should wrap in try-catch or use Result:
+     * ```kotlin
+     * runCatching { repository.save(item) }
+     *     .onSuccess { /* Success */ }
+     *     .onFailure { error -> /* Handle error */ }
+     * ```
+     *
+     * @param item Item to save
+     * @throws Exception if operation fails
+     */
     public suspend fun save(item: {{ domain_name }})
+
+    /**
+     * Deletes a {{ domain_name_lower }} by ID.
+     *
+     * No-op if item doesn't exist (idempotent).
+     * Operation is atomic and thread-safe.
+     *
+     * @param id Unique identifier of item to delete
+     * @throws Exception if operation fails
+     */
     public suspend fun delete(id: String)
+
+    /**
+     * Refreshes data from remote source (if applicable).
+     *
+     * Fetches latest data from server and updates local cache.
+     * Useful for pull-to-refresh functionality.
+     *
+     * ## Error Handling
+     * Returns Result to handle network failures gracefully.
+     *
+     * @return Result.success if refresh succeeded, Result.failure with exception if failed
+     */
+    public suspend fun refresh(): Result<Unit> = Result.success(Unit)
 }

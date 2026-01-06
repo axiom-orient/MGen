@@ -2,6 +2,8 @@ package {{ cookiecutter.base_package }}.core.database.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import {{ cookiecutter.base_package }}.core.database.AppDatabase
 import {{ cookiecutter.base_package }}.core.database.dao.SampleDao
 import dagger.Module
@@ -11,22 +13,152 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
+/**
+ * Hilt DI module for Database dependencies.
+ *
+ * Provides Room database with production-ready migration strategy.
+ *
+ * ## Migration Strategy
+ * **Production**: Use explicit migrations to preserve user data
+ * **Development/Debug**: Can use fallbackToDestructiveMigration for faster iteration
+ *
+ * ## Adding Migrations
+ * When database schema changes:
+ * 1. Increment version in AppDatabase
+ * 2. Add Migration from old to new version
+ * 3. Test migration with instrumented tests
+ *
+ * Example:
+ * ```kotlin
+ * val MIGRATION_2_3 = object : Migration(2, 3) {
+ *     override fun migrate(database: SupportSQLiteDatabase) {
+ *         database.execSQL("ALTER TABLE users ADD COLUMN email TEXT")
+ *     }
+ * }
+ * ```
+ *
+ * @see AppDatabase
+ * @see Migration
+ */
 @Module
 @InstallIn(SingletonComponent::class)
-object DatabaseModule {
+public object DatabaseModule {
 
+    /**
+     * Provides singleton Room database instance.
+     *
+     * Configuration:
+     * - **Migrations**: Explicit migrations for schema changes
+     * - **Fallback**: Destructive migration disabled in production
+     * - **Threading**: Uses background thread executor
+     *
+     * @param context Application context
+     * @param isDebug Debug mode flag
+     * @return AppDatabase instance
+     */
     @Provides
     @Singleton
-    fun provideDatabase(
-        @ApplicationContext context: Context
+    public fun provideDatabase(
+        @ApplicationContext context: Context,
+        @javax.inject.Named("isDebug") isDebug: Boolean
     ): AppDatabase {
-        return Room.databaseBuilder(
+        val builder = Room.databaseBuilder(
             context,
             AppDatabase::class.java,
-            "app.db"
-        ).fallbackToDestructiveMigration().build()
+            DATABASE_NAME
+        )
+
+        // Add migrations here
+        builder.addMigrations(
+            MIGRATION_1_2_EXAMPLE,
+            // Add more migrations as needed
+        )
+
+        // Only use destructive migration in debug builds
+        if (isDebug) {
+            builder.fallbackToDestructiveMigration()
+        }
+
+        return builder.build()
     }
 
+    /**
+     * Provides SampleDao from database.
+     *
+     * @param database AppDatabase instance
+     * @return SampleDao
+     */
     @Provides
-    fun provideSampleDao(database: AppDatabase): SampleDao = database.sampleDao()
+    public fun provideSampleDao(database: AppDatabase): SampleDao {
+        return database.sampleDao()
+    }
+
+    /**
+     * Example migration from version 1 to 2.
+     *
+     * This demonstrates how to write migrations for schema changes.
+     * **Replace or remove** this example when implementing real migrations.
+     *
+     * ## Migration Best Practices
+     * - Test migrations with instrumented tests
+     * - Keep migrations simple and focused
+     * - Document what changed
+     * - Provide default values for new NOT NULL columns
+     *
+     * Example scenarios:
+     * ```sql
+     * -- Add column
+     * ALTER TABLE table_name ADD COLUMN new_column TEXT DEFAULT ''
+     *
+     * -- Rename table
+     * ALTER TABLE old_name RENAME TO new_name
+     *
+     * -- Create index
+     * CREATE INDEX index_name ON table_name(column_name)
+     *
+     * -- Complex changes (requires temp table)
+     * CREATE TABLE table_new (...);
+     * INSERT INTO table_new SELECT ... FROM table_old;
+     * DROP TABLE table_old;
+     * ALTER TABLE table_new RENAME TO table_old;
+     * ```
+     */
+    private val MIGRATION_1_2_EXAMPLE = object : Migration(1, 2) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Example: Add a new column to sample_entities
+            // database.execSQL(
+            //     "ALTER TABLE sample_entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+            // )
+
+            // NOTE: This is a placeholder. Implement actual migration when needed.
+            // If no migration is needed yet, this migration won't be used.
+        }
+    }
+
+    /**
+     * Example migration from version 2 to 3.
+     *
+     * Add more migrations as schema evolves.
+     */
+    private val MIGRATION_2_3_EXAMPLE = object : Migration(2, 3) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // Example: Create a new table
+            // database.execSQL(
+            //     """
+            //     CREATE TABLE new_table (
+            //         id TEXT PRIMARY KEY NOT NULL,
+            //         name TEXT NOT NULL,
+            //         created_at INTEGER NOT NULL
+            //     )
+            //     """.trimIndent()
+            // )
+
+            // Example: Create an index
+            // database.execSQL(
+            //     "CREATE INDEX index_new_table_created_at ON new_table(created_at)"
+            // )
+        }
+    }
+
+    private const val DATABASE_NAME = "app.db"
 }

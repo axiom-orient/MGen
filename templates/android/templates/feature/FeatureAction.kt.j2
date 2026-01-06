@@ -1,13 +1,69 @@
 package {{ base_package }}.feature.{{ feature_name_lower }}
 
 /**
- * User actions for {{ feature_name }} feature
- */
-/**
- * UI Actions for {{ feature_name }}
+ * User actions (intents) for {{ feature_name }} feature.
+ *
+ * Sealed interface defining all possible user interactions with the screen.
+ * Represents the "Intent" in MVI (Model-View-Intent) architecture.
+ *
+ * ## MVI Pattern
+ * ```
+ * User Interaction → Action → ViewModel.onAction() → Business Logic → State Update
+ * ```
+ *
+ * ## Design Principles
+ * - **Exhaustive**: All user interactions must be represented
+ * - **Immutable**: Actions are immutable data structures
+ * - **Type-Safe**: Compile-time guarantees via sealed interface
+ * - **Descriptive**: Action names clearly describe user intent
+ *
+ * ## Adding New Actions
+ * To add a new action:
+ * 1. Add sealed interface implementation below
+ * 2. Handle in ViewModel.onAction()
+ * 3. Emit from UI composable when user performs action
+ *
+ * ## Examples
+ * ```kotlin
+ * // In Composable
+ * Button(onClick = { onAction({{ feature_name }}Action.Refresh) }) {
+ *     Text("Refresh")
+ * }
+ *
+ * // In ViewModel
+ * when (action) {
+ *     is {{ feature_name }}Action.Refresh -> loadData()
+ *     // ...
+ * }
+ * ```
+ *
+ * @see {{ feature_name }}ViewModel.onAction
  */
 public sealed interface {{ feature_name }}Action {
-    public object Refresh : {{ feature_name }}Action
-    public object OnBackClicked : {{ feature_name }}Action
+
+    /**
+     * User wants to refresh the screen data.
+     *
+     * Triggered by: Pull-to-refresh, retry button, manual refresh.
+     * Result: Re-fetches data from repository.
+     */
+    public data object Refresh : {{ feature_name }}Action
+
+    /**
+     * User tapped the back button or navigation icon.
+     *
+     * Triggered by: System back button, toolbar back icon.
+     * Result: Emits NavigateBack side effect.
+     */
+    public data object OnBackClicked : {{ feature_name }}Action
+
+    /**
+     * User clicked on a list item.
+     *
+     * Triggered by: Tapping item in list.
+     * Result: Navigates to detail screen with item ID.
+     *
+     * @property id Unique identifier of the clicked item
+     */
     public data class OnItemClicked(public val id: String) : {{ feature_name }}Action
 }

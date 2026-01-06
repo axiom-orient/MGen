@@ -1,0 +1,20 @@
+// Domain Module Build Configuration
+// Domain layer (business logic and use cases)
+
+plugins {
+    id("convention.domain")
+    id("convention.hilt")
+}
+
+android {
+    namespace = "{{ cookiecutter.base_package }}.domain.{{ domain_name_lower }}"
+}
+
+dependencies {
+    // Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+
+    // Kotlin Coroutines
+    implementation(libs.kotlinx.coroutines.core)
+}

@@ -3,34 +3,200 @@ package {{ base_package }}.domain.{{ domain_name_lower }}.impl.repository
 import {{ base_package }}.domain.{{ domain_name_lower }}.model.{{ domain_name }}
 import {{ base_package }}.domain.{{ domain_name_lower }}.repository.{{ domain_name }}Repository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import javax.inject.Inject
 
 /**
- * Default implementation of {{ domain_name }}Repository
- */
-/**
- * Default implementation of {{ domain_name }}Repository
+ * Default implementation of {{ domain_name }}Repository.
+ *
+ * Implements the repository interface defined in domain layer.
+ * This implementation lives in the data/infrastructure layer and handles
+ * actual data source interactions (database, network, cache).
+ *
+ * ## Implementation Strategy
+ * Common patterns for repository implementations:
+ *
+ * ### 1. Database Only (Room)
+ * ```kotlin
+ * class Default{{ domain_name }}Repository @Inject constructor(
+ *     private val dao: {{ domain_name }}Dao
+ * ) : {{ domain_name }}Repository {
+ *     override fun getAll() = dao.getAll().map { entities ->
+ *         entities.map { it.toDomain() }
+ *     }
+ * }
+ * ```
+ *
+ * ### 2. Network Only (Retrofit)
+ * ```kotlin
+ * class Default{{ domain_name }}Repository @Inject constructor(
+ *     private val api: {{ domain_name }}Api,
+ *     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+ * ) : {{ domain_name }}Repository {
+ *     override suspend fun getById(id: String) = withContext(ioDispatcher) {
+ *         runCatching { api.getById(id).toDomain() }
+ *             .getOrNull()
+ *     }
+ * }
+ * ```
+ *
+ * ### 3. Offline-First (Room + Retrofit)
+ * ```kotlin
+ * class Default{{ domain_name }}Repository @Inject constructor(
+ *     private val dao: {{ domain_name }}Dao,
+ *     private val api: {{ domain_name }}Api,
+ *     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+ * ) : {{ domain_name }}Repository {
+ *
+ *     override fun getAll(): Flow<List<{{ domain_name }}>> = flow {
+ *         // Emit cached data immediately
+ *         emitAll(dao.getAll().map { it.map { entity -> entity.toDomain() } })
+ *
+ *         // Fetch fresh data in background
+ *         withContext(ioDispatcher) {
+ *             runCatching { api.fetchAll() }
+ *                 .onSuccess { response ->
+ *                     dao.upsertAll(response.map { it.toEntity() })
+ *                 }
+ *         }
+ *     }
+ *
+ *     override suspend fun refresh(): Result<Unit> = withContext(ioDispatcher) {
+ *         runCatching {
+ *             val items = api.fetchAll()
+ *             dao.deleteAll()
+ *             dao.insertAll(items.map { it.toEntity() })
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ## Error Handling
+ * Handle errors gracefully:
+ * ```kotlin
+ * override suspend fun save(item: {{ domain_name }}) {
+ *     try {
+ *         dao.insert(item.toEntity())
+ *         // Sync to server in background (fire-and-forget)
+ *         syncScope.launch {
+ *             runCatching { api.create(item.toDto()) }
+ *                 .onFailure { error -> logSyncError(error) }
+ *         }
+ *     } catch (e: SQLiteException) {
+ *         throw DatabaseError("Failed to save {{ domain_name_lower }}", e)
+ *     }
+ * }
+ * ```
+ *
+ * ## Dependency Injection
+ * Inject data sources via constructor:
+ * ```kotlin
+ * @Inject constructor(
+ *     private val database: {{ domain_name }}Database,
+ *     private val api: {{ domain_name }}Api,
+ *     private val cache: {{ domain_name }}Cache,
+ *     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+ *     private val networkMonitor: NetworkMonitor
+ * )
+ * ```
+ *
+ * @see {{ domain_name }}Repository
  */
 public class Default{{ domain_name }}Repository @Inject constructor(
-    // Inject services here
+    // TODO: Inject actual data sources
+    // Example:
+    // private val dao: {{ domain_name }}Dao,
+    // private val api: {{ domain_name }}Api,
+    // @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : {{ domain_name }}Repository {
 
+    /**
+     * Returns all {{ domain_name_lower }} items as a Flow.
+     *
+     * TODO: Replace with actual implementation.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override fun getAll(): Flow<List<{{ domain_name }}>> {
+     *     return dao.getAll()
+     *         .map { entities -> entities.map { it.toDomain() } }
+     *         .flowOn(ioDispatcher)
+     * }
+     * ```
+     */
     override fun getAll(): Flow<List<{{ domain_name }}>> {
         // TODO: Implement actual logic
+        // Placeholder returns empty list
         return flowOf(emptyList())
     }
 
+    /**
+     * Gets a single {{ domain_name_lower }} by ID.
+     *
+     * TODO: Replace with actual implementation.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override suspend fun getById(id: String) = withContext(ioDispatcher) {
+     *     dao.getById(id)?.toDomain()
+     * }
+     * ```
+     */
     override suspend fun getById(id: String): {{ domain_name }}? {
         // TODO: Implement actual logic
         return null
     }
 
+    /**
+     * Saves a {{ domain_name_lower }} item (insert or update).
+     *
+     * TODO: Replace with actual implementation.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override suspend fun save(item: {{ domain_name }}) = withContext(ioDispatcher) {
+     *     dao.upsert(item.toEntity())
+     * }
+     * ```
+     */
     override suspend fun save(item: {{ domain_name }}) {
         // TODO: Implement actual logic
     }
 
+    /**
+     * Deletes a {{ domain_name_lower }} by ID.
+     *
+     * TODO: Replace with actual implementation.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override suspend fun delete(id: String) = withContext(ioDispatcher) {
+     *     dao.deleteById(id)
+     * }
+     * ```
+     */
     override suspend fun delete(id: String) {
         // TODO: Implement actual logic
+    }
+
+    /**
+     * Refreshes data from remote source.
+     *
+     * TODO: Replace with actual implementation.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override suspend fun refresh(): Result<Unit> = withContext(ioDispatcher) {
+     *     runCatching {
+     *         val items = api.fetchAll()
+     *         dao.updateAll(items.map { it.toEntity() })
+     *     }
+     * }
+     * ```
+     */
+    override suspend fun refresh(): Result<Unit> {
+        // TODO: Implement actual refresh logic
+        return Result.success(Unit)
     }
 }

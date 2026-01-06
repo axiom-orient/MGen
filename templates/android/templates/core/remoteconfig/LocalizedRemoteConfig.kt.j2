@@ -3,97 +3,147 @@ package {{ cookiecutter.base_package }}.core.remoteconfig
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Localized Remote Config value parser.
- *
- * **IMPORTANT**: All Remote Config text values MUST be in JSON format with language codes as keys.
- *
- * Example JSON format:
+ * Localized Remote Config helper.
+ * 
+ * Extracts language-specific values from JSON-formatted configuration strings.
+ * Configuration messages support multiple languages in JSON format:
+ * 
  * ```json
  * {
  *   "ko": "한국어 메시지",
  *   "en": "English message",
- *   "ja": "日本語メッセージ"
+ *   "ja": "日本語 メッセージ"
  * }
  * ```
- * Helper to handle localized string from JSON-encoded Remote Config values.
+ * 
+ * ## Features
+ * - **Multi-language support**: Supports 9 languages out of the box
+ * - **Automatic fallback**: Falls back to English if language not found
+ * - **Error recovery**: Returns null if parsing fails, logs warning
+ * - **Thread-safe**: Safe for concurrent access
+ * 
+ * ## Supported Languages
+ * Korean (ko), English (en), Japanese (ja), Chinese Simplified (zh-CN),
+ * Chinese Traditional (zh-TW), Spanish (es), Vietnamese (vi),
+ * Thai (th), French (fr)
+ * 
+ * @property context Application context for accessing system locale
  */
 @Singleton
 public class LocalizedRemoteConfig @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val TAG = "LocalizedRemoteConfig"
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     /**
-     * Parses a JSON string (e.g. {"en":"Hello", "ko":"안녕하세요"}) and returns
-     * the value for the current device locale.
-     *
-     * This function will attempt to find a localized string based on the device's current locale.
-     * If no specific locale match is found, it might fall back to a default (e.g., "en")
-     * or return an empty string, depending on the implementation.
-     *
-     * @param jsonString The raw JSON string from Remote Config.
-     * @return The localized string for the current device locale, or an empty string if not found or parsing fails.
+     * Extracts localized string from JSON configuration.
+     * 
+     * Attempts to parse JSON and extract value for specified language.
+     * Falls back to English if specified language not found.
+     * 
+     * ## Examples
+     * ```kotlin
+     * val jsonConfig = """{"ko":"안녕하세요","en":"Hello"}"""
+     * val korean = localize(jsonConfig, "ko") // "안녕하세요"
+     * val english = localize(jsonConfig, "en") // "Hello"
+     * val japanese = localize(jsonConfig, "ja") // "Hello" (fallback)
+     * ```
+     * 
+     * @param jsonString JSON-formatted configuration string
+     * @param languageCode ISO language code (e.g., "ko", "en", "ja")
+     * @return Localized string, English fallback, or null if parsing fails
      */
-    public fun getLocalizedValue(jsonString: String?): String {
+    public fun localize(jsonString: String?, languageCode: String = getDeviceLanguage()): String? {
         if (jsonString.isNullOrBlank()) {
-            Log.w(TAG, "JSON string for getLocalizedValue is null or blank.")
-            return ""
-        }
-
-        val currentLocale = context.resources.configuration.locales[0].language
-        return localize(jsonString, currentLocale) ?: ""
-    }
-
-    /**
-     * Get all available languages from a localized Remote Config value.
-     *
-     * @param rawValue The raw JSON string from Remote Config
-     * @return List of language codes, or empty list if not valid JSON format
-     */
-    public fun availableLanguages(rawValue: String): List<String> {
-        if (rawValue.isBlank()) return emptyList()
-
-        val json = try {
-            JSONObject(rawValue)
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse JSON for availableLanguages", e)
-            return emptyList()
-        }
-
-        return json.keys().asSequence().toList().sorted()
-    }
-
-    /**
-     * Get a specific language version from a localized Remote Config value.
-     *
-     * @param rawValue The raw JSON string from Remote Config
-     * @param languageCode The desired language code (e.g., "ko", "en", "ja")
-     * @return The localized string, or null if not found
-     */
-    fun localize(rawValue: String, languageCode: String): String? {
-        if (rawValue.isBlank()) {
-            Log.w(TAG, "Raw value is blank")
+            Log.w(TAG, "Empty or null JSON string provided")
             return null
         }
 
-        val json = try {
-            JSONObject(rawValue)
+        return try {
+            val jsonObject = json.parseToJsonElement(jsonString).jsonObject
+            
+            // Try requested language first
+            jsonObject[languageCode]?.jsonPrimitive?.content
+                // Fall back to English
+                ?: jsonObject[FALLBACK_LANGUAGE]?.jsonPrimitive?.content
+                // Fall back to first available value
+                ?: jsonObject.values.firstOrNull()?.jsonPrimitive?.content
+                .also {
+                    if (it == null) {
+                        Log.w(TAG, "No valid localization found in JSON: ${"$"}jsonString")
+                    } else if (!jsonObject.containsKey(languageCode)) {
+                        Log.d(TAG, "Language '${"$"}languageCode' not found, using fallback")
+                    }
+                }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse JSON: $rawValue", e)
-            return null
-        }
-
-        return if (json.has(languageCode)) {
-            Log.d(TAG, "Found localized value for language: $languageCode")
-            json.getString(languageCode)
-        } else {
-            Log.w(TAG, "Language code not found: $languageCode")
+            Log.e(TAG, "Failed to parse localization JSON: ${"$"}{e.message}", e)
             null
         }
+    }
+
+    /**
+     * Gets the device's primary language code.
+     * 
+     * Uses Android's system locale to determine user's preferred language.
+     * 
+     * @return ISO language code (e.g., "ko", "en", "ja")
+     */
+    public fun getDeviceLanguage(): String {
+        return context.resources.configuration.locales[0].language
+    }
+
+    /**
+     * Validates if a JSON string contains all required languages.
+     * 
+     * Useful for configuration validation and testing.
+     * 
+     * @param jsonString JSON-formatted configuration string
+     * @param requiredLanguages List of required language codes
+     * @return Result with true if all languages present, or error with missing languages
+     */
+    public fun validateLanguages(
+        jsonString: String,
+        requiredLanguages: List<String> = DEFAULT_LANGUAGES
+    ): Result<Boolean> = runCatching {
+        val jsonObject = json.parseToJsonElement(jsonString).jsonObject
+        val missingLanguages = requiredLanguages.filter { !jsonObject.containsKey(it) }
+        
+        if (missingLanguages.isNotEmpty()) {
+            val languageList = missingLanguages.joinToString(", ")
+            throw IllegalArgumentException("Missing required languages: ${"$"}languageList")
+        }
+        
+        true
+    }
+
+    public companion object {
+        private const val TAG = "LocalizedRemoteConfig"
+        private const val FALLBACK_LANGUAGE = "en"
+
+        /**
+         * Default supported languages.
+         */
+        public val DEFAULT_LANGUAGES: List<String> = listOf(
+            "ko",      // Korean
+            "en",      // English
+            "ja",      // Japanese
+            "zh-CN",   // Chinese (Simplified)
+            "zh-TW",   // Chinese (Traditional)
+            "es",      // Spanish
+            "vi",      // Vietnamese
+            "th",      // Thai
+            "fr"       // French
+        )
     }
 }

@@ -11,28 +11,59 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Hilt module for Remote Config and Update Checker dependency injection.
+ * Hilt DI module for Remote Config dependencies.
+ * 
+ * Provides:
+ * - [RemoteConfigRepository]: Firebase-based configuration (production)
+ * - [UpdateChecker]: Version comparison and update detection
+ * 
+ * ## Configuration Strategy
+ * 
+ * **Production**: Uses [FirebaseRemoteConfigRepository] for live remote config
+ * **Testing**: Swap binding to [LocalRemoteConfigRepository] for offline tests
+ * 
+ * ## Dependency Graph
+ * ```
+ * RemoteConfigRepository (interface)
+ *   ├─ FirebaseRemoteConfigRepository (prod)
+ *   └─ LocalRemoteConfigRepository (test/offline)
+ * 
+ * UpdateChecker (interface)
+ *   └─ DefaultUpdateChecker (implementation)
+ * ```
+ * 
+ * @see RemoteConfigRepository
+ * @see UpdateChecker
  */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class RemoteConfigModule {
+public abstract class RemoteConfigModule {
 
     /**
-     * Binds RemoteConfigRepository implementation.
+     * Binds Firebase implementation as the default Remote Config repository.
+     * 
+     * For testing or offline scenarios, replace with [LocalRemoteConfigRepository]:
+     * ```kotlin
+     * @TestInstallIn(
+     *     components = [SingletonComponent::class],
+     *     replaces = [RemoteConfigModule::class]
+     * )
+     * ```
      */
     @Binds
     @Singleton
-    abstract fun bindRemoteConfigRepository(
+    public abstract fun bindRemoteConfigRepository(
         impl: FirebaseRemoteConfigRepository
     ): RemoteConfigRepository
 
     /**
-     * Binds DefaultUpdateChecker as the UpdateChecker implementation.
+     * Binds the default update checker implementation.
+     * 
+     * Provides semantic versioning comparison and Play Store URL generation.
      */
     @Binds
     @Singleton
-    abstract fun bindUpdateChecker(
+    public abstract fun bindUpdateChecker(
         impl: DefaultUpdateChecker
     ): UpdateChecker
 }
-

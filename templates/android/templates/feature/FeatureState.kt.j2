@@ -1,7 +1,54 @@
 package {{ base_package }}.feature.{{ feature_name_lower }}
 
 /**
- * UI State for {{ feature_name }}
+ * Immutable UI state for {{ feature_name }} screen.
+ *
+ * Represents the complete UI state at any given moment.
+ * All properties are immutable (val) to ensure unidirectional data flow.
+ *
+ * ## MVI Pattern
+ * State is the single source of truth for UI rendering:
+ * ```
+ * State Change → UI Recomposition (automatic via StateFlow observation)
+ * ```
+ *
+ * ## Design Principles
+ * - **Immutable**: All properties are val, updates via copy()
+ * - **Complete**: Contains ALL data needed to render the UI
+ * - **Simple**: No complex logic, just data
+ * - **Default Values**: Sensible defaults for initial state
+ *
+ * ## State Updates
+ * Updates are done via ViewModel using copy():
+ * ```kotlin
+ * _state.update { it.copy(isLoading = true, error = null) }
+ * _state.update { it.copy(isLoading = false, data = newData) }
+ * ```
+ *
+ * ## Process Death Recovery
+ * For state restoration after process death, use SavedStateHandle:
+ * ```kotlin
+ * @HiltViewModel
+ * class ViewModel @Inject constructor(
+ *     private val savedStateHandle: SavedStateHandle
+ * ) {
+ *     private val _state = MutableStateFlow(
+ *         savedStateHandle.get<{{ feature_name }}State>("state") ?: {{ feature_name }}State()
+ *     )
+ *
+ *     init {
+ *         viewModelScope.launch {
+ *             state.collect { savedStateHandle["state"] = it }
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * @property isLoading Whether data is currently being loaded
+ * @property data List of data items to display (placeholder type)
+ * @property error Error message if loading failed, null if no error
+ *
+ * @see {{ feature_name }}ViewModel
  */
 public data class {{ feature_name }}State(
     public val isLoading: Boolean = false,

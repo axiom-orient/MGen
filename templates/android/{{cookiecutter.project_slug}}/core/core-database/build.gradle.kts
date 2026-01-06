@@ -16,6 +16,9 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
+    // Kotlinx Serialization (for Converters)
+    implementation(libs.kotlinx.serialization.json)
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

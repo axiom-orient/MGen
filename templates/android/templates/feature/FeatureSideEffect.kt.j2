@@ -1,9 +1,78 @@
 package {{ base_package }}.feature.{{ feature_name_lower }}
 
 /**
- * Side Effects for {{ feature_name }} (Navigation, Toast, etc.)
+ * One-time side effects for {{ feature_name }} feature.
+ *
+ * Sealed interface defining events that should happen exactly once,
+ * like navigation, showing snackbars, or opening dialogs.
+ *
+ * ## Side Effects vs State
+ * - **State**: Continuous, can be observed multiple times (e.g., loading status)
+ * - **Side Effect**: One-time events that should not be repeated (e.g., navigation)
+ *
+ * ## Channel-Based Delivery
+ * Side effects use Channel instead of StateFlow to ensure:
+ * - Event is consumed only once
+ * - No automatic replay on configuration change
+ * - Events are not lost if collected late
+ *
+ * ## Pattern
+ * ```
+ * ViewModel                           Composable
+ *     |                                   |
+ *     | _sideEffect.send(NavigateBack)    |
+ *     |---------------------------------->|
+ *     |                           LaunchedEffect observes
+ *     |                           Handles navigation once
+ *     |                           Event is consumed
+ * ```
+ *
+ * ## Usage in ViewModel
+ * ```kotlin
+ * viewModelScope.launch {
+ *     _sideEffect.send({{ feature_name }}SideEffect.ShowError("Network error"))
+ * }
+ * ```
+ *
+ * ## Usage in Composable
+ * ```kotlin
+ * LaunchedEffect(key1 = Unit) {
+ *     viewModel.sideEffect.collect { effect ->
+ *         when (effect) {
+ *             is {{ feature_name }}SideEffect.NavigateBack -> navController.popBackStack()
+ *             is {{ feature_name }}SideEffect.ShowError -> {
+ *                 snackbarHostState.showSnackbar(effect.message)
+ *             }
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ## Adding New Side Effects
+ * To add a new side effect:
+ * 1. Add sealed interface implementation below
+ * 2. Send from ViewModel when event should occur
+ * 3. Handle in Composable LaunchedEffect
+ *
+ * @see {{ feature_name }}ViewModel.sideEffect
  */
 public sealed interface {{ feature_name }}SideEffect {
-    public object NavigateBack : {{ feature_name }}SideEffect
+
+    /**
+     * Navigate back to previous screen.
+     *
+     * Triggered when: User taps back button, action completes successfully.
+     * Handling: Call navController.popBackStack() or onNavigateBack callback.
+     */
+    public data object NavigateBack : {{ feature_name }}SideEffect
+
+    /**
+     * Show error message to user.
+     *
+     * Triggered when: Operation fails, validation error occurs.
+     * Handling: Show snackbar or toast with error message.
+     *
+     * @property message Localized error message to display
+     */
     public data class ShowError(public val message: String) : {{ feature_name }}SideEffect
 }

@@ -20,33 +20,104 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * {{ feature_name }} Screen
+ * {{ feature_name }} screen implementing MVI pattern.
+ *
+ * Main composable that integrates ViewModel, state collection, and side effect handling.
+ * Delegates UI rendering to stateless {{ feature_name }}Content composable.
+ *
+ * ## Architecture
+ * - **State Management**: Observes ViewModel state with lifecycle awareness
+ * - **Side Effects**: Handles one-time events like navigation in LaunchedEffect
+ * - **Separation of Concerns**: UI logic separated into stateless Content function
+ *
+ * ## Lifecycle Awareness
+ * Uses `collectAsStateWithLifecycle()` to automatically pause collection when
+ * the lifecycle moves below STARTED state, preventing unnecessary work.
+ *
+ * ## Side Effect Pattern
+ * ```kotlin
+ * LaunchedEffect(key1 = Unit) {
+ *     viewModel.sideEffect.collect { effect ->
+ *         when (effect) {
+ *             is SideEffect.Navigation -> navigate()
+ *             is SideEffect.Toast -> showToast()
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ## Usage in Navigation Graph
+ * ```kotlin
+ * composable(route = "{{ feature_name_lower }}") {
+ *     {{ feature_name }}Screen(
+ *         onNavigateBack = { navController.popBackStack() }
+ *     )
+ * }
+ * ```
+ *
+ * @param viewModel ViewModel injected by Hilt via hiltViewModel()
+ * @param onNavigateBack Callback for back navigation
+ *
+ * @see {{ feature_name }}ViewModel
+ * @see {{ feature_name }}Content
  */
 @Composable
 public fun {{ feature_name }}Screen(
     viewModel: {{ feature_name }}ViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit
 ) {
+    // Collect state with lifecycle awareness to avoid unnecessary updates
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val sideEffect = viewModel.sideEffect
 
-    LaunchedEffect(sideEffect) {
-        sideEffect.collect { effect ->
+    // Handle side effects (one-time events)
+    LaunchedEffect(key1 = Unit) {
+        viewModel.sideEffect.collect { effect ->
             when (effect) {
                 is {{ feature_name }}SideEffect.NavigateBack -> onNavigateBack()
                 is {{ feature_name }}SideEffect.ShowError -> {
-                    // Show snackbar or toast
+                    // TODO: Show snackbar or toast
+                    // Example: snackbarHostState.showSnackbar(effect.message)
                 }
             }
         }
     }
 
+    // Render stateless UI content
     {{ feature_name }}Content(
         state = state,
         onAction = viewModel::onAction
     )
 }
 
+/**
+ * Stateless content composable for {{ feature_name }} screen.
+ *
+ * Renders UI based on current state and emits actions on user interactions.
+ * Completely stateless and testable independently of ViewModel.
+ *
+ * ## State-Based Rendering
+ * - **Loading**: Shows circular progress indicator
+ * - **Error**: Shows error message with retry button
+ * - **Success**: Shows data with interaction controls
+ *
+ * ## Testability
+ * Being stateless makes this composable easy to test:
+ * ```kotlin
+ * @Test
+ * fun testLoadingState() {
+ *     composeTestRule.setContent {
+ *         {{ feature_name }}Content(
+ *             state = {{ feature_name }}State(isLoading = true),
+ *             onAction = {}
+ *         )
+ *     }
+ *     composeTestRule.onNode(hasTestTag("progress")).assertExists()
+ * }
+ * ```
+ *
+ * @param state Current UI state to render
+ * @param onAction Callback for user actions
+ */
 @Composable
 public fun {{ feature_name }}Content(
     state: {{ feature_name }}State,

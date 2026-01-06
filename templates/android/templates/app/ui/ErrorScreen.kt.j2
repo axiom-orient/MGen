@@ -20,11 +20,44 @@ import {{ cookiecutter.base_package }}.R
 import {{ cookiecutter.base_package }}.lifecycle.AppStartupState
 
 /**
- * Error Screen.
- * Displayed when cold start fails with retry option.
+ * Error screen displayed when app initialization fails.
+ *
+ * Shows a user-friendly error message with an optional retry button.
+ * Allows users to retry the cold start sequence when the error is recoverable.
+ *
+ * ## Features
+ * - **Error Message Display**: Shows localized error message from state
+ * - **Conditional Retry**: Retry button only shown for retryable errors
+ * - **Centered Layout**: Error content centered for better UX
+ * - **Material Design 3**: Uses M3 typography and color system
+ *
+ * ## Error Types
+ * - **Network Errors**: Connection failures, timeouts (retryable)
+ * - **Server Errors**: 5xx responses (retryable)
+ * - **Client Errors**: Invalid configuration (non-retryable)
+ * - **Unknown Errors**: Generic failures (retryable)
+ *
+ * ## Usage
+ * This composable is automatically shown by MainActivity when
+ * AppLifecycleManager transitions to Error state:
+ * ```kotlin
+ * when (startupState) {
+ *     is AppStartupState.Error -> ErrorScreen(
+ *         state = startupState,
+ *         onRetry = { lifecycleManager.retry() }
+ *     )
+ * }
+ * ```
+ *
+ * @param state Error state containing message and retry flag
+ * @param onRetry Callback invoked when user taps retry button
+ * @param modifier Modifier for the root container
+ *
+ * @see AppStartupState.Error
+ * @see AppLifecycleManager.retry
  */
 @Composable
-fun ErrorScreen(
+public fun ErrorScreen(
     state: AppStartupState.Error,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier

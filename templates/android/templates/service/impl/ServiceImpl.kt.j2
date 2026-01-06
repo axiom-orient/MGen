@@ -2,35 +2,237 @@ package {{ base_package }}.service.{{ service_name_lower }}.impl
 
 import {{ base_package }}.service.{{ service_name_lower }}.{{ service_name }}Service
 import {{ base_package }}.service.{{ service_name_lower }}.model.{{ service_name }}Response
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * Implementation of {{ service_name }}Service
- */
-/**
- * Implementation of {{ service_name }}Service
+ * Production implementation of {{ service_name }}Service.
+ *
+ * Handles actual API communication through Retrofit/Ktor.
+ * Implements error handling, retries, and response transformation.
+ *
+ * ## Implementation Patterns
+ *
+ * ### Basic Retrofit Pattern
+ * ```kotlin
+ * class Live{{ service_name }}Service @Inject constructor(
+ *     private val api: {{ service_name }}Api,
+ *     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+ * ) : {{ service_name }}Service {
+ *
+ *     override suspend fun fetch() = withContext(ioDispatcher) {
+ *         runCatching {
+ *             api.fetch{{ service_name }}()
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ### With Error Mapping
+ * ```kotlin
+ * override suspend fun fetch() = withContext(ioDispatcher) {
+ *     runCatching {
+ *         api.fetch{{ service_name }}()
+ *     }.mapError { error ->
+ *         when (error) {
+ *             is IOException -> NetworkError(error)
+ *             is HttpException -> when (error.code()) {
+ *                 401 -> AuthError("Token expired")
+ *                 404 -> NotFoundError("Resource not found")
+ *                 else -> ServerError(error.code(), error.message())
+ *             }
+ *             else -> UnknownError(error)
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ### With Retry Logic
+ * ```kotlin
+ * override suspend fun fetch() = retryWithExponentialBackoff(
+ *     maxRetries = 3,
+ *     initialDelay = 1000L
+ * ) {
+ *     withContext(ioDispatcher) {
+ *         runCatching { api.fetch{{ service_name }}() }
+ *     }
+ * }
+ *
+ * suspend fun <T> retryWithExponentialBackoff(
+ *     maxRetries: Int,
+ *     initialDelay: Long,
+ *     block: suspend () -> Result<T>
+ * ): Result<T> {
+ *     var currentDelay = initialDelay
+ *     repeat(maxRetries) { attempt ->
+ *         val result = block()
+ *         if (result.isSuccess) return result
+ *
+ *         if (attempt < maxRetries - 1) {
+ *             delay(currentDelay)
+ *             currentDelay *= 2 // Exponential backoff
+ *         }
+ *     }
+ *     return block() // Final attempt
+ * }
+ * ```
+ *
+ * ## Retrofit API Definition
+ * Companion Retrofit interface:
+ * ```kotlin
+ * interface {{ service_name }}Api {
+ *     @GET("api/{{ service_name_lower }}")
+ *     suspend fun fetch{{ service_name }}(): {{ service_name }}ResponseDto
+ *
+ *     @POST("api/{{ service_name_lower }}")
+ *     suspend fun create{{ service_name }}(
+ *         @Body request: {{ service_name }}RequestDto
+ *     ): {{ service_name }}ResponseDto
+ *
+ *     @PUT("api/{{ service_name_lower }}/{id}")
+ *     suspend fun update{{ service_name }}(
+ *         @Path("id") id: String,
+ *         @Body request: {{ service_name }}RequestDto
+ *     )
+ *
+ *     @DELETE("api/{{ service_name_lower }}/{id}")
+ *     suspend fun delete{{ service_name }}(@Path("id") id: String)
+ * }
+ * ```
+ *
+ * ## Interceptors
+ * Add interceptors for cross-cutting concerns:
+ * ```kotlin
+ * @Provides
+ * @Singleton
+ * fun provideOkHttpClient(
+ *     authInterceptor: AuthInterceptor,
+ *     loggingInterceptor: HttpLoggingInterceptor
+ * ): OkHttpClient {
+ *     return OkHttpClient.Builder()
+ *         .addInterceptor(authInterceptor) // Auth headers
+ *         .addInterceptor(loggingInterceptor) // Request/response logging
+ *         .connectTimeout(30, TimeUnit.SECONDS)
+ *         .readTimeout(30, TimeUnit.SECONDS)
+ *         .build()
+ * }
+ *
+ * class AuthInterceptor @Inject constructor(
+ *     private val tokenProvider: TokenProvider
+ * ) : Interceptor {
+ *     override fun intercept(chain: Interceptor.Chain): Response {
+ *         val token = tokenProvider.get()
+ *         val request = chain.request().newBuilder()
+ *             .header("Authorization", "Bearer ${"$"}token")
+ *             .build()
+ *         return chain.proceed(request)
+ *     }
+ * }
+ * ```
+ *
+ * ## Response Caching
+ * Implement HTTP caching:
+ * ```kotlin
+ * @Provides
+ * fun provideOkHttpClient(context: Context): OkHttpClient {
+ *     val cacheSize = 10 * 1024 * 1024 // 10 MB
+ *     val cache = Cache(context.cacheDir, cacheSize.toLong())
+ *
+ *     return OkHttpClient.Builder()
+ *         .cache(cache)
+ *         .addInterceptor { chain ->
+ *             var request = chain.request()
+ *             // Force cache when offline
+ *             request = if (hasNetwork()) {
+ *                 request.newBuilder()
+ *                     .header("Cache-Control", "public, max-age=60")
+ *                     .build()
+ *             } else {
+ *                 request.newBuilder()
+ *                     .header("Cache-Control", "public, only-if-cached, max-stale=604800")
+ *                     .build()
+ *             }
+ *             chain.proceed(request)
+ *         }
+ *         .build()
+ * }
+ * ```
+ *
+ * @property ioDispatcher Dispatcher for network operations (injected)
+ *
+ * @see {{ service_name }}Service
  */
 public class Live{{ service_name }}Service @Inject constructor(
-    // Inject dependencies here (e.g., Retrofit API)
+    // TODO: Inject actual dependencies
+    // Example:
+    // private val api: {{ service_name }}Api,
+    // @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    // private val networkMonitor: NetworkMonitor
 ) : {{ service_name }}Service {
 
+    /**
+     * Fetches {{ service_name_lower }} data from API.
+     *
+     * TODO: Replace placeholder with actual Retrofit API call.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override suspend fun fetch() = withContext(ioDispatcher) {
+     *     runCatching {
+     *         api.fetch{{ service_name }}()
+     *             .also { logApiSuccess("fetch{{ service_name }}") }
+     *     }.onFailure { error ->
+     *         logApiError("fetch{{ service_name }}", error)
+     *     }
+     * }
+     * ```
+     */
     override suspend fun fetch(): Result<{{ service_name }}Response> {
         return try {
-            // TODO: Implement actual API call
+            // TODO: Replace with actual API call
+            // Example: api.fetch{{ service_name }}()
+
+            // Placeholder implementation
             val response = {{ service_name }}Response(
                 id = "1",
-                data = "Sample data",
+                data = "Sample data from Live{{ service_name }}Service",
                 timestamp = System.currentTimeMillis()
             )
             Result.success(response)
         } catch (e: Exception) {
+            // In production, distinguish between error types:
+            // - IOException -> Network error
+            // - HttpException -> HTTP error (401, 404, 500, etc.)
+            // - SerializationException -> Parsing error
             Result.failure(e)
         }
     }
 
+    /**
+     * Updates {{ service_name_lower }} data via API.
+     *
+     * TODO: Replace placeholder with actual Retrofit API call.
+     *
+     * Production implementation:
+     * ```kotlin
+     * override suspend fun update(data: {{ service_name }}Response) = withContext(ioDispatcher) {
+     *     runCatching {
+     *         val dto = data.toDto() // Transform domain model to DTO
+     *         api.update{{ service_name }}(dto)
+     *         logApiSuccess("update{{ service_name }}")
+     *     }.onFailure { error ->
+     *         logApiError("update{{ service_name }}", error)
+     *     }
+     * }
+     * ```
+     */
     override suspend fun update(data: {{ service_name }}Response): Result<Unit> {
         return try {
-            // TODO: Implement actual API call
+            // TODO: Replace with actual API call
+            // Example: api.update{{ service_name }}(data.toDto())
+
+            // Placeholder implementation
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

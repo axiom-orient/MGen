@@ -1,12 +1,115 @@
 package {{ cookiecutter.base_package }}.core.database.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "sample_entities")
-data class SampleEntity(
-    @PrimaryKey
-    val id: String,
-    val payload: String,
-    val updatedAt: Long
+/**
+ * Sample database entity.
+ *
+ * Demonstrates Room entity best practices with:
+ * - **Primary key**: Unique identifier for each row
+ * - **Indexes**: Performance optimization for queries
+ * - **Column names**: Explicit naming for SQL clarity
+ * - **Immutable data class**: Thread-safe and predictable
+ *
+ * ## Schema
+ * ```sql
+ * CREATE TABLE sample_entities (
+ *   id TEXT PRIMARY KEY NOT NULL,
+ *   payload TEXT NOT NULL,
+ *   updated_at INTEGER NOT NULL
+ * );
+ * CREATE INDEX index_sample_entities_updated_at ON sample_entities(updated_at);
+ * ```
+ *
+ * ## Usage
+ * ```kotlin
+ * val entity = SampleEntity(
+ *     id = UUID.randomUUID().toString(),
+ *     payload = "Sample data",
+ *     updatedAt = System.currentTimeMillis()
+ * )
+ * sampleDao.upsert(entity)
+ * ```
+ *
+ * ## Adding Fields
+ * When adding new fields:
+ * 1. Add property with default value (for backward compatibility)
+ * 2. Increment database version in AppDatabase
+ * 3. Provide migration or use fallbackToDestructiveMigration
+ *
+ * Example:
+ * ```kotlin
+ * @ColumnInfo(name = "status")
+ * val status: String = "active"  // Default for existing rows
+ * ```
+ *
+ * @property id Unique identifier (UUID recommended)
+ * @property payload Sample data content
+ * @property updatedAt Timestamp in milliseconds (Unix epoch)
+ */
+@Entity(
+    tableName = "sample_entities",
+    indices = [
+        Index(value = ["updated_at"]) // Index for sorting by date
+    ]
 )
+public data class SampleEntity(
+    /**
+     * Primary key - unique identifier.
+     * Use UUID for globally unique IDs across devices.
+     */
+    @PrimaryKey
+    @ColumnInfo(name = "id")
+    val id: String,
+
+    /**
+     * Sample data payload.
+     * In real app, replace with domain-specific fields.
+     */
+    @ColumnInfo(name = "payload")
+    val payload: String,
+
+    /**
+     * Last update timestamp in milliseconds.
+     * Use System.currentTimeMillis() when creating/updating.
+     */
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long
+) {
+    /**
+     * Companion object for factory methods and constants.
+     */
+    public companion object {
+        /**
+         * Creates a new entity with current timestamp.
+         *
+         * @param id Unique identifier
+         * @param payload Data content
+         * @return New SampleEntity instance
+         */
+        public fun create(id: String, payload: String): SampleEntity {
+            return SampleEntity(
+                id = id,
+                payload = payload,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
+    /**
+     * Creates a copy with updated timestamp.
+     * Useful when modifying entities.
+     *
+     * @param payload New payload value
+     * @return Updated copy of entity
+     */
+    public fun withPayload(payload: String): SampleEntity {
+        return copy(
+            payload = payload,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+}

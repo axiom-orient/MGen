@@ -3,9 +3,149 @@ package {{ base_package }}.service.{{ service_name_lower }}
 import {{ base_package }}.service.{{ service_name_lower }}.model.{{ service_name }}Response
 
 /**
- * Service interface for {{ service_name }}
+ * Service interface for {{ service_name }} API operations.
+ *
+ * Defines the contract for network/external service interactions.
+ * Service layer handles communication with external systems (REST APIs,
+ * GraphQL, gRPC, etc.) and transforms responses to domain models.
+ *
+ * ## Service Layer Responsibilities
+ * - **API Communication**: HTTP requests via Retrofit/Ktor
+ * - **Error Handling**: Network errors, HTTP errors, parsing errors
+ * - **Response Transformation**: DTO → Domain Model mapping
+ * - **Authentication**: Token management, OAuth flows
+ * - **Caching**: HTTP caching, response caching
+ *
+ * ## Return Type: Result<T>
+ * All service methods return `Result<T>` for explicit error handling:
+ * ```kotlin
+ * service.fetch()
+ *     .onSuccess { data -> updateUI(data) }
+ *     .onFailure { error ->
+ *         when (error) {
+ *             is NetworkError -> showNetworkError()
+ *             is ApiError -> showApiError(error.code)
+ *             else -> showGenericError()
+ *         }
+ *     }
+ * ```
+ *
+ * ## Retrofit Implementation
+ * Implementations typically use Retrofit:
+ * ```kotlin
+ * interface {{ service_name }}Api {
+ *     @GET("{{ service_name_lower }}")
+ *     suspend fun fetch(): {{ service_name }}ResponseDto
+ *
+ *     @POST("{{ service_name_lower }}")
+ *     suspend fun create(@Body request: {{ service_name }}RequestDto): Unit
+ * }
+ *
+ * class Live{{ service_name }}Service @Inject constructor(
+ *     private val api: {{ service_name }}Api
+ * ) : {{ service_name }}Service {
+ *     override suspend fun fetch() = runCatching {
+ *         api.fetch().toResponse()
+ *     }
+ * }
+ * ```
+ *
+ * ## Error Types
+ * Distinguish between error types for better UX:
+ * ```kotlin
+ * sealed class {{ service_name }}Error : Exception() {
+ *     data class Network(override val cause: Throwable?) : {{ service_name }}Error()
+ *     data class Http(val code: Int, val message: String) : {{ service_name }}Error()
+ *     data class Parsing(override val cause: Throwable?) : {{ service_name }}Error()
+ *     data class Auth(val reason: String) : {{ service_name }}Error()
+ * }
+ * ```
+ *
+ * ## Testing
+ * Easy to mock for testing:
+ * ```kotlin
+ * class Fake{{ service_name }}Service : {{ service_name }}Service {
+ *     var shouldFail = false
+ *
+ *     override suspend fun fetch() = if (shouldFail) {
+ *         Result.failure(NetworkError())
+ *     } else {
+ *         Result.success({{ service_name }}Response(...))
+ *     }
+ * }
+ * ```
+ *
+ * @see {{ service_name }}Response
  */
 public interface {{ service_name }}Service {
+
+    /**
+     * Fetches {{ service_name_lower }} data from remote service.
+     *
+     * Makes HTTP GET request to retrieve data.
+     * Result contains either successful response or error.
+     *
+     * ## HTTP Details
+     * - **Method**: GET
+     * - **Endpoint**: /api/{{ service_name_lower }}
+     * - **Auth**: Bearer token (if configured)
+     * - **Cache**: Respects HTTP cache headers
+     *
+     * ## Error Scenarios
+     * - **Network**: No internet connection, timeout
+     * - **401**: Token expired, authentication required
+     * - **403**: Insufficient permissions
+     * - **404**: Resource not found
+     * - **500**: Server error
+     *
+     * ## Usage
+     * ```kotlin
+     * viewModelScope.launch {
+     *     service.fetch()
+     *         .onSuccess { response ->
+     *             _state.update { it.copy(data = response) }
+     *         }
+     *         .onFailure { error ->
+     *             _state.update { it.copy(error = error.message) }
+     *         }
+     * }
+     * ```
+     *
+     * @return Result containing {{ service_name }}Response or error
+     */
     public suspend fun fetch(): Result<{{ service_name }}Response>
+
+    /**
+     * Updates {{ service_name_lower }} data on remote service.
+     *
+     * Makes HTTP POST/PUT request to update data.
+     * Result indicates success or failure.
+     *
+     * ## HTTP Details
+     * - **Method**: POST or PUT
+     * - **Endpoint**: /api/{{ service_name_lower }}
+     * - **Body**: JSON serialized {{ service_name }}Response
+     * - **Auth**: Bearer token (if configured)
+     *
+     * ## Idempotency
+     * For idempotent updates, use PUT:
+     * ```kotlin
+     * @PUT("{{ service_name_lower }}/{id}")
+     * suspend fun update(@Path("id") id: String, @Body data: Dto)
+     * ```
+     *
+     * ## Validation
+     * Consider validating data before sending:
+     * ```kotlin
+     * override suspend fun update(data: {{ service_name }}Response) = runCatching {
+     *     require(data.id.isNotBlank()) { "ID is required" }
+     *     require(data.data.length \u003c 1000) { "Data too long" }
+     *     api.update(data.toDto())
+     * }
+     * ```
+     *
+     * @param data Data to update
+     * @return Result.success if updated, Result.failure with error if failed
+     */
     public suspend fun update(data: {{ service_name }}Response): Result<Unit>
 }

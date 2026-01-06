@@ -1,13 +1,76 @@
 package {{ base_package }}.domain.{{ domain_name_lower }}.model
 
 /**
- * Domain model for {{ domain_name }}
- */
-/**
- * Domain model for {{ domain_name }}
+ * Domain model for {{ domain_name }}.
+ *
+ * Represents the core business entity in the domain layer.
+ * Domain models are immutable, framework-agnostic, and contain business logic.
+ *
+ * ## Domain Layer Principles
+ * - **Framework Independent**: No Android/database dependencies
+ * - **Business Logic**: Contains validation and domain rules
+ * - **Immutable**: All properties are `val` for thread safety
+ * - **Type-Safe**: Uses value objects instead of primitives when appropriate
+ *
+ * ## Validation
+ * Domain models can include factory methods with validation:
+ * ```kotlin
+ * companion object {
+ *     fun create(name: String): Result<{{ domain_name }}> {
+ *         if (name.isBlank()) return Result.failure(ValidationError("Name required"))
+ *         return Result.success({{ domain_name }}(...))
+ *     }
+ * }
+ * ```
+ *
+ * ## Value Objects
+ * For complex validation, use value objects:
+ * ```kotlin
+ * @JvmInline
+ * value class {{ domain_name }}Id(val value: String) {
+ *     init {
+ *         require(value.length == 36) { "Invalid ID format" }
+ *     }
+ * }
+ * ```
+ *
+ * @property id Unique identifier for this {{ domain_name_lower }}
+ * @property name Human-readable name
+ * @property createdAt Creation timestamp in milliseconds (Unix epoch)
  */
 public data class {{ domain_name }}(
     public val id: String,
     public val name: String,
     public val createdAt: Long
-)
+) {
+    public companion object {
+        /**
+         * Creates a new {{ domain_name }} with auto-generated timestamp.
+         *
+         * @param id Unique identifier
+         * @param name Display name
+         * @return New {{ domain_name }} instance
+         */
+        public fun create(id: String, name: String): {{ domain_name }} {
+            return {{ domain_name }}(
+                id = id,
+                name = name,
+                createdAt = System.currentTimeMillis()
+            )
+        }
+    }
+
+    /**
+     * Checks if this {{ domain_name_lower }} is valid.
+     *
+     * Validation rules:
+     * - ID must not be blank
+     * - Name must not be blank
+     * - CreatedAt must be positive
+     *
+     * @return true if valid, false otherwise
+     */
+    public fun isValid(): Boolean {
+        return id.isNotBlank() && name.isNotBlank() && createdAt > 0
+    }
+}

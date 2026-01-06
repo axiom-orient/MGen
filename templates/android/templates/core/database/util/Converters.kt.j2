@@ -1,0 +1,183 @@
+package {{ cookiecutter.base_package }}.core.database.util
+
+import androidx.room.TypeConverter
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.util.Date
+
+/**
+ * Room TypeConverters for common data types.
+ *
+ * Automatically converts between Kotlin types and database-compatible types.
+ * Room uses these converters when storing/retrieving complex types.
+ *
+ * ## Supported Conversions
+ * - **Date** ↔ Long (timestamp)
+ * - **List<String>** ↔ String (JSON)
+ * - **Map<String, String>** ↔ String (JSON)
+ *
+ * ## Usage
+ * Apply to database with @TypeConverters annotation:
+ * ```kotlin
+ * @Database(...)
+ * @TypeConverters(Converters::class)
+ * abstract class AppDatabase : RoomDatabase()
+ * ```
+ *
+ * Then use converted types in entities:
+ * ```kotlin
+ * @Entity
+ * data class User(
+ *     @PrimaryKey val id: String,
+ *     val createdAt: Date,              // Automatically converted
+ *     val tags: List<String>,           // Automatically converted
+ *     val metadata: Map<String, String> // Automatically converted
+ * )
+ * ```
+ *
+ * ## Adding Custom Converters
+ * Add converter methods for your custom types:
+ * ```kotlin
+ * @TypeConverter
+ * fun fromMyCustomType(value: MyCustomType): String {
+ *     return json.encodeToString(value)
+ * }
+ *
+ * @TypeConverter
+ * fun toMyCustomType(value: String): MyCustomType {
+ *     return json.decodeFromString(value)
+ * }
+ * ```
+ */
+public class Converters {
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Date Converters
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Converts Date to Long timestamp for database storage.
+     *
+     * @param date Date to convert, or null
+     * @return Timestamp in milliseconds, or null
+     */
+    @TypeConverter
+    public fun fromDate(date: Date?): Long? {
+        return date?.time
+    }
+
+    /**
+     * Converts Long timestamp to Date.
+     *
+     * @param timestamp Timestamp in milliseconds, or null
+     * @return Date instance, or null
+     */
+    @TypeConverter
+    public fun toDate(timestamp: Long?): Date? {
+        return timestamp?.let { Date(it) }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // List<String> Converters
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Converts List<String> to JSON string for database storage.
+     *
+     * Example: ["tag1", "tag2"] → "[\"tag1\",\"tag2\"]"
+     *
+     * @param list List to convert, or null
+     * @return JSON string, or null
+     */
+    @TypeConverter
+    public fun fromStringList(list: List<String>?): String? {
+        return list?.let { json.encodeToString(it) }
+    }
+
+    /**
+     * Converts JSON string to List<String>.
+     *
+     * Example: "[\"tag1\",\"tag2\"]" → ["tag1", "tag2"]
+     *
+     * @param value JSON string, or null
+     * @return List of strings, or null
+     */
+    @TypeConverter
+    public fun toStringList(value: String?): List<String>? {
+        return value?.let { json.decodeFromString<List<String>>(it) }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Map<String, String> Converters
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Converts Map<String, String> to JSON string for database storage.
+     *
+     * Example: {"key1": "value1"} → "{\"key1\":\"value1\"}"
+     *
+     * @param map Map to convert, or null
+     * @return JSON string, or null
+     */
+    @TypeConverter
+    public fun fromStringMap(map: Map<String, String>?): String? {
+        return map?.let { json.encodeToString(it) }
+    }
+
+    /**
+     * Converts JSON string to Map<String, String>.
+     *
+     * Example: "{\"key1\":\"value1\"}" → {"key1": "value1"}
+     *
+     * @param value JSON string, or null
+     * @return Map of strings, or null
+     */
+    @TypeConverter
+    public fun toStringMap(value: String?): Map<String, String>? {
+        return value?.let { json.decodeFromString<Map<String, String>>(it) }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Enum Converters (Example)
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Example enum converter.
+     * Replace with your app-specific enums.
+     *
+     * @param status Status enum value
+     * @return String representation
+     */
+    @TypeConverter
+    public fun fromStatus(status: Status?): String? {
+        return status?.name
+    }
+
+    /**
+     * Example enum converter.
+     * Replace with your app-specific enums.
+     *
+     * @param value String representation
+     * @return Status enum value
+     */
+    @TypeConverter
+    public fun toStatus(value: String?): Status? {
+        return value?.let { Status.valueOf(it) }
+    }
+}
+
+/**
+ * Example status enum.
+ * Replace with your app-specific enums.
+ */
+public enum class Status {
+    ACTIVE,
+    INACTIVE,
+    PENDING,
+    DELETED
+}

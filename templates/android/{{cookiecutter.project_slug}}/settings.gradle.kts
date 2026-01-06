@@ -27,14 +27,13 @@ rootProject.name = "{{ cookiecutter.project_name }}"
 // Enable Type-Safe Project Accessors
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
-// Enable Configuration Cache
-enableFeaturePreview("STABLE_CONFIGURATION_CACHE")
+// Enable Configuration Cache is now stable and handled in gradle.properties
+
 
 // Build Cache Configuration
 buildCache {
     local {
         directory = File(rootDir, "build-cache")
-        removeUnusedEntriesAfterDays = 30
     }
 }
 

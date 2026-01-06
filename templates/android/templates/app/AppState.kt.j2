@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 import {{ cookiecutter.base_package }}.core.network.NetworkMonitor
-import {{ cookiecutter.base_package }}.core.network.NetworkStatus
+import {{ cookiecutter.base_package }}.core.network.NetworkState
 import {{ cookiecutter.base_package }}.core.remoteconfig.LocalizedRemoteConfig
 import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigKeys
 import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigRepository
@@ -32,53 +32,79 @@ import javax.inject.Singleton
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_state")
 
 /**
- * Centralized app state manager.
+ * Centralized app state manager with Kotlin 1.9+ best practices.
  *
- * Manages both volatile (in-memory) and persistent (DataStore Preferences) state.
- * Uses Kotlin StateFlow for reactive state management.
+ * Manages both volatile (in-memory) and persistent (DataStore Preferences) state
+ * with type-safe reactive programming patterns.
  *
- * **Design Philosophy:**
+ * ## Architecture
+ * - **Volatile State**: MutableStateFlow for in-memory session state
+ * - **Persistent State**: DataStore Preferences with Flow-based reactive access
+ * - **Error Handling**: Result monad for all write operations
+ * - **Coroutines**: Suspend functions for async operations
+ *
+ * ## Design Philosophy
  * - Mirrors iOS swift-sharing pattern for platform parity
  * - Uses Jetpack DataStore for type-safe, async persistence
- * - Exposes persistent state as Flow for reactive consumption
+ * - Exposes all state as Flow for reactive consumption
+ * - No blocking operations - all DataStore access is suspend-based
+ * - Comprehensive error handling with Result<T>
  *
- * Usage:
+ * ## Usage Examples
  * ```kotlin
- * // Access via Hilt injection
  * @Inject lateinit var appState: AppState
  *
- * // Read volatile state
+ * // Volatile state (in-memory)
  * val tabIndex = appState.selectedTabIndex.value
- *
- * // Update volatile state
  * appState.setSelectedTabIndex(1)
  *
- * // Read persistent state (as Flow)
+ * // Persistent state (reactive Flow)
  * viewModel.viewModelScope.launch {
  *     appState.forceUpdateMinimumVersion.collect { version ->
- *         // Handle version changes
+ *         // React to version changes
  *     }
+ * }
+ *
+ * // Write with error handling
+ * viewModel.viewModelScope.launch {
+ *     appState.setUserId("user123")
+ *         .onSuccess { Log.d(TAG, "User ID saved") }
+ *         .onFailure { Log.e(TAG, "Failed to save", it) }
  * }
  *
  * // Sync from Remote Config
  * viewModel.viewModelScope.launch {
  *     appState.syncFromRemoteConfig(remoteConfigRepository)
+ *         .onSuccess { Log.d(TAG, "Config synced") }
+ *         .onFailure { Log.e(TAG, "Sync failed", it) }
  * }
  * ```
+ *
+ * @property context Application context for DataStore access
+ * @property networkMonitor Network state monitoring
+ * @property localizedRemoteConfig Localization support
  */
 @Singleton
-class AppState @Inject constructor(
+public class AppState @Inject constructor(
     @ApplicationContext private val context: Context,
     private val networkMonitor: NetworkMonitor,
     private val localizedRemoteConfig: LocalizedRemoteConfig
 ) {
-    private val dataStore = context.dataStore
-    private val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val dataStore: DataStore<Preferences> = context.dataStore
 
-    companion object {
+    /**
+     * Coroutine scope for StateFlow transformations.
+     * Uses SupervisorJob to prevent cascading cancellations.
+     */
+    private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    public companion object {
         private const val TAG = "AppState"
 
-        // DataStore keys
+        /**
+         * DataStore preference keys.
+         * Centralized key definitions for type safety.
+         */
         private object PrefsKeys {
             val FORCE_UPDATE_MIN_VERSION = stringPreferencesKey("forceUpdateMinVersion")
             val MAINTENANCE_MODE = booleanPreferencesKey("maintenanceMode")
@@ -183,65 +209,68 @@ class AppState @Inject constructor(
         preferences[PrefsKeys.THEME_MODE] ?: "system"
     }
 
-    public val isNetworkAvailable: Flow<Boolean> = networkMonitor.networkStatus
-        .map { it == NetworkStatus.AVAILABLE }
+    public val isNetworkAvailable: Flow<Boolean> = networkMonitor.networkState
+        .map { it is NetworkState.Available }
         .stateIn(coroutineScope, SharingStarted.Eagerly, false)
 
-    // Helper functions with explicit return types
-    public suspend fun setUserId(id: String) {
-        dataStore.edit { preferences ->
-            preferences[PrefsKeys.USER_ID] = id
-        }
-    }
-
-    public suspend fun setLoggedIn(loggedIn: Boolean) {
-        dataStore.edit { preferences ->
-            preferences[PrefsKeys.IS_LOGGED_IN] = loggedIn
-        }
-    }
-
     // ══════════════════════════════════════════════════════════════
-    // Synchronous accessors (for non-coroutine contexts)
+    // Write Operations (Result-based for error handling)
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * Get force update minimum version synchronously.
-     * Use sparingly - prefer Flow-based access.
+     * Sets user ID in persistent storage.
+     *
+     * @param id User identifier
+     * @return Result indicating success or failure
      */
-    fun getForceUpdateMinimumVersionSync(): String = runBlocking {
-        forceUpdateMinimumVersion.first()
+    public suspend fun setUserId(id: String): Result<Unit> = runCatching {
+        dataStore.edit { preferences ->
+            preferences[PrefsKeys.USER_ID] = id
+        }
+        Log.d(TAG, "User ID set: $id")
     }
 
-    fun getIsMaintenanceModeSync(): Boolean = runBlocking {
-        isMaintenanceMode.first()
+    /**
+     * Sets login status in persistent storage.
+     *
+     * @param loggedIn Whether user is logged in
+     * @return Result indicating success or failure
+     */
+    public suspend fun setLoggedIn(loggedIn: Boolean): Result<Unit> = runCatching {
+        dataStore.edit { preferences ->
+            preferences[PrefsKeys.IS_LOGGED_IN] = loggedIn
+        }
+        Log.d(TAG, "Login status set: $loggedIn")
     }
 
-    fun getMaintenanceMessageSync(): String = runBlocking {
-        maintenanceMessage.first()
+    /**
+     * Sets theme mode in persistent storage.
+     *
+     * @param mode Theme mode ("light", "dark", "system")
+     * @return Result indicating success or failure
+     */
+    public suspend fun setThemeMode(mode: String): Result<Unit> = runCatching {
+        dataStore.edit { preferences ->
+            preferences[PrefsKeys.THEME_MODE] = mode
+        }
+        Log.d(TAG, "Theme mode set: $mode")
     }
 
-    fun getWelcomeMessageSync(): String = runBlocking {
-        welcomeMessage.first()
-    }
-
-    fun getLastRemoteConfigSyncTimestampSync(): Long = runBlocking {
-        lastRemoteConfigSyncTimestamp.first()
-    }
-
-    fun getUserLanguageCodeSync(): String = runBlocking {
-        userLanguageCode.first()
-    }
 
     // ══════════════════════════════════════════════════════════════
     // 📦 Template Core - Remote Config Sync
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * Sync persistent state from Remote Config values.
+     * Synchronizes persistent state from Remote Config values.
      *
      * Call this after successful Remote Config fetch to persist values locally.
+     * Uses Result monad for safe error handling.
+     *
+     * @param repository Remote Config repository to sync from
+     * @return Result indicating success or failure
      */
-    suspend fun syncFromRemoteConfig(repository: RemoteConfigRepository) {
+    public suspend fun syncFromRemoteConfig(repository: RemoteConfigRepository): Result<Unit> = runCatching {
         dataStore.edit { prefs ->
             prefs[PrefsKeys.FORCE_UPDATE_MIN_VERSION] = repository.getString(RemoteConfigKeys.FORCE_UPDATE_MIN_VERSION)
             prefs[PrefsKeys.MAINTENANCE_MODE] = repository.getBoolean(RemoteConfigKeys.MAINTENANCE_MODE_ENABLED)
@@ -251,48 +280,60 @@ class AppState @Inject constructor(
         }
 
         Log.i(TAG, "✅ AppState synced from Remote Config")
-        Log.d(TAG, "- forceUpdateMinVersion: ${getForceUpdateMinimumVersionSync()}")
-        Log.d(TAG, "- maintenanceMode: ${getIsMaintenanceModeSync()}")
+        Log.d(TAG, "- forceUpdateMinVersion: ${forceUpdateMinimumVersion.first()}")
+        Log.d(TAG, "- maintenanceMode: ${isMaintenanceMode.first()}")
     }
 
     /**
-     * Set user language code.
+     * Sets user language code in persistent storage.
+     *
+     * @param languageCode Language code (e.g., "en", "ko", "ja")
+     * @return Result indicating success or failure
      */
-    suspend fun setUserLanguageCode(languageCode: String) {
+    public suspend fun setUserLanguageCode(languageCode: String): Result<Unit> = runCatching {
         dataStore.edit { prefs ->
             prefs[PrefsKeys.USER_LANGUAGE_CODE] = languageCode
         }
+        Log.d(TAG, "User language code set: $languageCode")
     }
 
     /**
-     * Check if cached Remote Config values exist.
+     * Checks if cached Remote Config values exist.
+     *
+     * @return true if cache exists, false otherwise
      */
-    val hasCachedRemoteConfig: Boolean
-        get() = getLastRemoteConfigSyncTimestampSync() > 0
+    public suspend fun hasCachedRemoteConfig(): Boolean {
+        return lastRemoteConfigSyncTimestamp.first() > 0
+    }
 
     /**
-     * Check if cache is valid (within TTL).
+     * Checks if cache is valid (within TTL).
      * Matches iOS behavior: 10 minute TTL.
+     *
+     * @return true if cache is valid, false otherwise
      */
-    val isCacheValid: Boolean
-        get() {
-            if (!hasCachedRemoteConfig) return false
-            val elapsed = System.currentTimeMillis() - getLastRemoteConfigSyncTimestampSync()
-            return elapsed < AppConstants.CACHE_TTL_MS
-        }
+    public suspend fun isCacheValid(): Boolean {
+        if (!hasCachedRemoteConfig()) return false
+        val timestamp = lastRemoteConfigSyncTimestamp.first()
+        val elapsed = System.currentTimeMillis() - timestamp
+        return elapsed < AppConstants.CACHE_TTL_MS
+    }
 
     /**
-     * Check if this is the first launch.
+     * Checks if this is the first launch.
+     *
+     * @return true if first launch is complete, false otherwise
      */
-    val isFirstLaunchComplete: Boolean
-        get() = runBlocking {
-            dataStore.data.first()[PrefsKeys.IS_FIRST_LAUNCH_COMPLETE] ?: false
-        }
+    public suspend fun isFirstLaunchComplete(): Boolean {
+        return dataStore.data.first()[PrefsKeys.IS_FIRST_LAUNCH_COMPLETE] ?: false
+    }
 
     /**
-     * Mark first launch as complete.
+     * Marks first launch as complete.
+     *
+     * @return Result indicating success or failure
      */
-    suspend fun markFirstLaunchComplete() {
+    public suspend fun markFirstLaunchComplete(): Result<Unit> = runCatching {
         dataStore.edit { prefs ->
             prefs[PrefsKeys.IS_FIRST_LAUNCH_COMPLETE] = true
         }
@@ -304,23 +345,31 @@ class AppState @Inject constructor(
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * Get localized welcome message based on user's selected language.
+     * Gets localized welcome message based on user's selected language.
+     *
+     * Falls back to English if localization not available.
+     *
+     * @return Result containing localized message or error
      */
-    suspend fun getLocalizedWelcomeMessage(): String {
+    public suspend fun getLocalizedWelcomeMessage(): Result<String> = runCatching {
         val langCode = userLanguageCode.first()
         val message = welcomeMessage.first()
-        return localizedRemoteConfig.localize(message, langCode)
+        localizedRemoteConfig.localize(message, langCode)
             ?: localizedRemoteConfig.localize(message, "en")
             ?: ""
     }
 
     /**
-     * Get localized maintenance message based on user's selected language.
+     * Gets localized maintenance message based on user's selected language.
+     *
+     * Falls back to English if localization not available.
+     *
+     * @return Result containing localized message or error
      */
-    suspend fun getLocalizedMaintenanceMessage(): String {
+    public suspend fun getLocalizedMaintenanceMessage(): Result<String> = runCatching {
         val langCode = userLanguageCode.first()
         val message = maintenanceMessage.first()
-        return localizedRemoteConfig.localize(message, langCode)
+        localizedRemoteConfig.localize(message, langCode)
             ?: localizedRemoteConfig.localize(message, "en")
             ?: ""
     }
@@ -330,19 +379,27 @@ class AppState @Inject constructor(
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * Reset all volatile state to defaults.
+     * Resets all volatile state to defaults.
+     *
+     * Clears in-memory state like selected tab, onboarding status, etc.
      */
-    fun resetVolatileState() {
+    public fun resetVolatileState() {
         _selectedTabIndex.value = 0
         _isShowingOnboarding.value = false
         _lastViewedScreen.value = ""
+        _latestStoreVersionCode.value = null
         Log.d(TAG, "Volatile state reset")
     }
 
     /**
-     * Clear all persistent state (use with caution).
+     * Clears all persistent state.
+     *
+     * **Warning**: This is destructive and cannot be undone.
+     * Use only for logout or factory reset scenarios.
+     *
+     * @return Result indicating success or failure
      */
-    suspend fun clearPersistentState() {
+    public suspend fun clearPersistentState(): Result<Unit> = runCatching {
         dataStore.edit { prefs ->
             prefs.clear()
         }

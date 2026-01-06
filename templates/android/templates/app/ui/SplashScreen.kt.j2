@@ -35,24 +35,50 @@ import androidx.compose.ui.unit.sp
 import {{ cookiecutter.base_package }}.lifecycle.AppStartupState
 
 /**
- * Animated Splash Screen.
- * Android equivalent of iOS SplashView.
+ * Animated splash screen with scale and fade animations.
  *
- * Features:
- * - Scale and fade animation
- * - Gradient background
- * - Progress indicator during loading
+ * Displays the app logo, name, and loading progress during app initialization.
+ * Implements smooth entrance animations to enhance user experience during cold start.
+ *
+ * ## Features
+ * - **Scale Animation**: Logo scales from 0.5x to 1.0x over 800ms
+ * - **Fade Animation**: Content fades in with 600ms delay for staggered effect
+ * - **Gradient Background**: Linear gradient for visual appeal
+ * - **Loading States**: Shows progress indicator for Loading state, static for Splash
+ * - **Loading Message**: Displays status message when available
+ *
+ * ## Animation Sequence
+ * 1. Logo scales up with FastOutSlowInEasing (800ms)
+ * 2. Text fades in with 200ms delay (600ms duration)
+ * 3. Progress indicator appears with content
+ *
+ * ## Customization
+ * Replace the gradient colors and app icon to match your brand:
+ * ```kotlin
+ * // Background gradient colors
+ * Color(0xFFFAF8F6) to Color(0xFFF2EDEA)  // Warm neutral
+ *
+ * // Accent color (logo background & progress indicator)
+ * Color(0xFFE66B5B)  // Coral red
+ * ```
+ *
+ * @param startupState Current startup state from AppLifecycleManager
+ * @param modifier Modifier for the root container
+ *
+ * @see AppStartupState.Splash
+ * @see AppStartupState.Loading
  */
 @Composable
-fun SplashScreen(
+public fun SplashScreen(
     startupState: AppStartupState,
     modifier: Modifier = Modifier
 ) {
+    // Animation states for entrance effects
     val scale = remember { Animatable(0.5f) }
     val alpha = remember { Animatable(0f) }
 
-    LaunchedEffect(Unit) {
-        // Entrance animation
+    // Scale animation: Logo scales from 0.5x to 1.0x with smooth easing
+    LaunchedEffect(key1 = Unit) {
         scale.animateTo(
             targetValue = 1f,
             animationSpec = tween(
@@ -62,7 +88,8 @@ fun SplashScreen(
         )
     }
 
-    LaunchedEffect(Unit) {
+    // Fade animation: Content fades in with slight delay for staggered effect
+    LaunchedEffect(key1 = Unit) {
         alpha.animateTo(
             targetValue = 1f,
             animationSpec = tween(

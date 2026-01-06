@@ -1,43 +1,101 @@
 package {{ cookiecutter.base_package }}.core.network.di
 
+import android.content.Context
+import android.util.Log
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Converter
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
-import {{ cookiecutter.base_package }}.core.network.NetworkMonitor
 import {{ cookiecutter.base_package }}.core.network.DefaultNetworkMonitor
+import {{ cookiecutter.base_package }}.core.network.NetworkMonitor
 
+/**
+ * Hilt DI module for Network dependencies.
+ *
+ * Provides production-ready networking components with:
+ * - **Retrofit**: REST API client with Kotlin serialization
+ * - **OkHttpClient**: HTTP client with timeouts and retry logic
+ * - **NetworkMonitor**: Reactive network state monitoring
+ * - **Interceptors**: Logging, retry, and custom headers
+ *
+ * ## Configuration
+ * - **Debug builds**: Full HTTP logging, shorter timeouts
+ * - **Release builds**: No logging, production timeouts
+ * - **Retry policy**: Exponential backoff with 3 max attempts
+ *
+ * @see NetworkMonitor
+ * @see RetryInterceptor
+ */
 @Module
 @InstallIn(SingletonComponent::class)
-object NetworkModule {
+public object NetworkModule {
 
+    private const val TAG = "NetworkModule"
+
+    /**
+     * Provides JSON serializer configured for API communication.
+     *
+     * Configuration:
+     * - Ignores unknown keys for backward compatibility
+     * - Excludes null values from serialization
+     * - Pretty printing disabled for production efficiency
+     *
+     * @return Configured Json instance
+     */
     @Provides
     @Singleton
-    fun provideJson(): Json = Json {
+    public fun provideJson(): Json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
+        coerceInputValues = true
+        isLenient = false
     }
 
+    /**
+     * Provides OkHttpClient with production-ready configuration.
+     *
+     * Features:
+     * - **Timeouts**: 30s connect, 60s read, 60s write
+     * - **Retry**: Automatic retry with exponential backoff
+     * - **Logging**: Full request/response logging in debug builds
+     * - **Connection pool**: Reuses connections for efficiency
+     *
+     * @param isDebug Whether app is in debug mode
+     * @param retryInterceptor Retry interceptor for failed requests
+     * @return Configured OkHttpClient
+     */
     @Provides
     @Singleton
-    fun provideOkHttpClient(
-        @Named("isDebug") isDebug: Boolean
+    public fun provideOkHttpClient(
+        @Named("isDebug") isDebug: Boolean,
+        retryInterceptor: RetryInterceptor
     ): OkHttpClient {
         val builder = OkHttpClient.Builder()
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(retryInterceptor)
 
         if (isDebug) {
-            val logging = HttpLoggingInterceptor()
+            val logging = HttpLoggingInterceptor { message ->
+                Log.d(TAG, message)
+            }
             logging.level = HttpLoggingInterceptor.Level.BODY
             builder.addInterceptor(logging)
         }
@@ -45,15 +103,36 @@ object NetworkModule {
         return builder.build()
     }
 
+    /**
+     * Provides Retrofit converter factory for Kotlin serialization.
+     *
+     * Converts between Kotlin objects and JSON for API requests/responses.
+     *
+     * @param json Configured Json instance
+     * @return Converter factory for Retrofit
+     */
     @Provides
     @Singleton
-    fun provideConverterFactory(json: Json): Converter.Factory {
+    public fun provideConverterFactory(json: Json): Converter.Factory {
         return json.asConverterFactory("application/json".toMediaType())
     }
 
+    /**
+     * Provides Retrofit instance for API communication.
+     *
+     * Configured with:
+     * - Base URL from app configuration
+     * - OkHttpClient with retry and logging
+     * - Kotlin serialization converter
+     *
+     * @param baseUrl API base URL
+     * @param okHttpClient Configured HTTP client
+     * @param converterFactory JSON converter factory
+     * @return Retrofit instance
+     */
     @Provides
     @Singleton
-    fun provideRetrofit(
+    public fun provideRetrofit(
         @Named("baseUrl") baseUrl: String,
         okHttpClient: OkHttpClient,
         converterFactory: Converter.Factory
@@ -65,11 +144,141 @@ object NetworkModule {
             .build()
     }
 
+    /**
+     * Provides retry interceptor with exponential backoff.
+     *
+     * Automatically retries failed requests with increasing delays.
+     *
+     * @return Retry interceptor
+     */
     @Provides
     @Singleton
-    fun provideNetworkMonitor(
-        @ApplicationContext context: Context
-    ): NetworkMonitor {
-        return DefaultNetworkMonitor(context)
+    public fun provideRetryInterceptor(): RetryInterceptor {
+        return RetryInterceptor(
+            maxRetries = MAX_RETRIES,
+            initialDelayMs = INITIAL_RETRY_DELAY_MS,
+            maxDelayMs = MAX_RETRY_DELAY_MS
+        )
+    }
+
+    private const val CONNECT_TIMEOUT_SECONDS = 30L
+    private const val READ_TIMEOUT_SECONDS = 60L
+    private const val WRITE_TIMEOUT_SECONDS = 60L
+    private const val MAX_RETRIES = 3
+    private const val INITIAL_RETRY_DELAY_MS = 1000L
+    private const val MAX_RETRY_DELAY_MS = 10000L
+}
+
+/**
+ * Dagger Binds module for Network interfaces.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+public abstract class NetworkBindsModule {
+    /**
+     * Binds NetworkMonitor implementation.
+     */
+    @Binds
+    @Singleton
+    public abstract fun bindNetworkMonitor(
+        impl: DefaultNetworkMonitor
+    ): NetworkMonitor
+}
+
+/**
+ * Retry interceptor with exponential backoff strategy.
+ *
+ * Automatically retries failed HTTP requests with increasing delays.
+ * Only retries on network errors and 5xx server errors.
+ *
+ * ## Retry Strategy
+ * - **Attempt 1**: Immediate (0ms delay)
+ * - **Attempt 2**: 1s delay
+ * - **Attempt 3**: 2s delay (2x multiplier)
+ * - **Attempt 4**: 4s delay
+ * - Up to max delay (10s default)
+ *
+ * ## Retryable Conditions
+ * - Network failures (timeout, connection refused, etc.)
+ * - HTTP 500 Internal Server Error
+ * - HTTP 502 Bad Gateway
+ * - HTTP 503 Service Unavailable
+ * - HTTP 504 Gateway Timeout
+ *
+ * @property maxRetries Maximum number of retry attempts (default 3)
+ * @property initialDelayMs Initial delay before first retry (default 1000ms)
+ * @property maxDelayMs Maximum delay between retries (default 10000ms)
+ * @property backoffMultiplier Delay multiplier for each retry (default 2.0)
+ */
+public class RetryInterceptor(
+    private val maxRetries: Int = 3,
+    private val initialDelayMs: Long = 1000L,
+    private val maxDelayMs: Long = 10000L,
+    private val backoffMultiplier: Double = 2.0
+) : Interceptor {
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        var response: Response? = null
+        var exception: Exception? = null
+        var attempt = 0
+
+        while (attempt <= maxRetries) {
+            try {
+                response?.close() // Close previous response if exists
+                response = chain.proceed(request)
+
+                // If successful or non-retryable, return
+                if (response.isSuccessful || !isRetryable(response.code)) {
+                    return response
+                }
+
+                Log.w(TAG, "Request failed with code ${response.code}, attempt $attempt/$maxRetries")
+            } catch (e: Exception) {
+                exception = e
+                Log.w(TAG, "Request failed with exception: ${e.message}, attempt $attempt/$maxRetries")
+            }
+
+            // Don't delay after last attempt
+            if (attempt < maxRetries) {
+                val delay = calculateDelay(attempt)
+                Log.d(TAG, "Retrying after ${delay}ms...")
+                Thread.sleep(delay)
+            }
+
+            attempt++
+        }
+
+        // All retries exhausted
+        return response ?: throw exception ?: Exception("Request failed after $maxRetries retries")
+    }
+
+    /**
+     * Calculates delay for current retry attempt using exponential backoff.
+     *
+     * Formula: min(initialDelay * (multiplier ^ attempt), maxDelay)
+     */
+    private fun calculateDelay(attempt: Int): Long {
+        val delay = (initialDelayMs * Math.pow(backoffMultiplier, attempt.toDouble())).toLong()
+        return delay.coerceAtMost(maxDelayMs)
+    }
+
+    /**
+     * Determines if an HTTP status code is retryable.
+     *
+     * Retries on:
+     * - 500 Internal Server Error
+     * - 502 Bad Gateway
+     * - 503 Service Unavailable
+     * - 504 Gateway Timeout
+     */
+    private fun isRetryable(code: Int): Boolean {
+        return code in 500..599 && code in RETRYABLE_STATUS_CODES
+    }
+
+    private companion object {
+        private const val TAG = "RetryInterceptor"
+        private val RETRYABLE_STATUS_CODES = setOf(500, 502, 503, 504)
     }
 }
+

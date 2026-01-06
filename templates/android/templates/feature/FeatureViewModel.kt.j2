@@ -15,46 +15,162 @@ import javax.inject.Inject
 import androidx.lifecycle.SavedStateHandle
 
 /**
- * ViewModel for {{ feature_name }} feature
- * Implements MVI pattern with State, Action, and SideEffect
+ * ViewModel for {{ feature_name }} feature implementing MVI pattern.
+ *
+ * Manages UI state and business logic using the Model-View-Intent (MVI) architecture.
+ * Provides unidirectional data flow with State, Action (Intent), and SideEffect.
+ *
+ * ## MVI Architecture
+ * - **State**: Immutable data class representing UI state
+ * - **Action**: Sealed interface defining all possible user intents
+ * - **SideEffect**: One-time events like navigation or toast messages
+ *
+ * ## State Management
+ * ```
+ * User Action → onAction() → Business Logic → State Update → UI Recomposition
+ *                           ↓
+ *                      Side Effect (optional)
+ * ```
+ *
+ * ## Features
+ * - **Reactive State**: StateFlow for UI observation with lifecycle awareness
+ * - **Side Effects**: Channel-based events for navigation and one-time actions
+ * - **Structured Concurrency**: ViewModelScope for automatic cancellation
+ * - **Error Handling**: Graceful error recovery with error state
+ * - **Process Death**: SavedStateHandle for state restoration
+ *
+ * ## Usage in Composable
+ * ```kotlin
+ * @Composable
+ * fun {{ feature_name }}Screen(viewModel: {{ feature_name }}ViewModel = hiltViewModel()) {
+ *     val state by viewModel.state.collectAsStateWithLifecycle()
+ *
+ *     LaunchedEffect(key1 = Unit) {
+ *         viewModel.sideEffect.collect { effect ->
+ *             when (effect) {
+ *                 is {{ feature_name }}SideEffect.NavigateBack -> navController.popBackStack()
+ *                 is {{ feature_name }}SideEffect.ShowError -> showSnackbar(effect.message)
+ *             }
+ *         }
+ *     }
+ *
+ *     {{ feature_name }}Content(
+ *         state = state,
+ *         onAction = viewModel::onAction
+ *     )
+ * }
+ * ```
+ *
+ * @param savedStateHandle Saved state handle for process death recovery
+ *
+ * @see {{ feature_name }}State
+ * @see {{ feature_name }}Action
+ * @see {{ feature_name }}SideEffect
  */
 @HiltViewModel
 public class {{ feature_name }}ViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
+    /**
+     * Current UI state as immutable StateFlow.
+     * UI observes this to render the current screen state.
+     */
     private val _state = MutableStateFlow({{ feature_name }}State())
     public val state: StateFlow<{{ feature_name }}State> = _state.asStateFlow()
 
+    /**
+     * Side effects channel for one-time events.
+     * Used for navigation, snackbars, dialogs, etc.
+     */
     private val _sideEffect = Channel<{{ feature_name }}SideEffect>()
     public val sideEffect: Flow<{{ feature_name }}SideEffect> = _sideEffect.receiveAsFlow()
 
     init {
+        // Initialize by loading data on ViewModel creation
         loadData()
     }
 
+    /**
+     * Handles all user actions from the UI.
+     *
+     * This is the single entry point for all user intents.
+     * Maps each action to corresponding business logic.
+     *
+     * @param action User action/intent to process
+     */
     public fun onAction(action: {{ feature_name }}Action) {
         when (action) {
             is {{ feature_name }}Action.Refresh -> loadData()
-            is {{ feature_name }}Action.OnItemClicked -> {
-                // TODO: Handle item click navigation
-            }
-            is {{ feature_name }}Action.OnBackClicked -> {
-                // TODO: Handle back navigation
+            is {{ feature_name }}Action.OnItemClicked -> handleItemClick(action.id)
+            is {{ feature_name }}Action.OnBackClicked -> handleBackNavigation()
+        }
+    }
+
+    /**
+     * Loads data for the screen.
+     *
+     * ## Flow
+     * 1. Set loading state to true
+     * 2. Call use case to fetch data
+     * 3. Update state with result or error
+     * 4. Set loading state to false
+     *
+     * ## Error Handling
+     * Catches all exceptions and updates state with error message.
+     * User can retry via Refresh action.
+     */
+    private fun loadData() {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true, error = null) }
+
+            try {
+                // TODO: Replace with actual use case call
+                // Example:
+                // val result = getSomethingUseCase()
+                //     .onSuccess { data -> _state.update { it.copy(data = data) } }
+                //     .onFailure { error -> _state.update { it.copy(error = error.message) } }
+
+                // Placeholder implementation
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        data = listOf("{{ feature_name }} loaded"),
+                        error = null
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.localizedMessage ?: "Unknown error occurred"
+                    )
+                }
             }
         }
     }
 
-    private fun loadData() {
+    /**
+     * Handles item click navigation.
+     *
+     * @param id ID of the clicked item
+     */
+    private fun handleItemClick(id: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
+            // TODO: Implement navigation logic
+            // Example: Navigate to detail screen
+            // _sideEffect.send({{ feature_name }}SideEffect.NavigateToDetail(id))
+        }
+    }
 
-            // TODO: Call use case here
-            // Example:
-            // val result = getSomethingUseCase()
-            // _state.update { it.copy(isLoading = false, data = result) }
-
-            _state.update { it.copy(isLoading = false, data = listOf("{{ feature_name }} loaded")) }
+    /**
+     * Handles back navigation.
+     *
+     * Sends NavigateBack side effect to trigger screen pop.
+     */
+    private fun handleBackNavigation() {
+        viewModelScope.launch {
+            _sideEffect.send({{ feature_name }}SideEffect.NavigateBack)
         }
     }
 }

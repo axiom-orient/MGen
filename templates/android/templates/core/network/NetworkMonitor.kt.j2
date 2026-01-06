@@ -5,78 +5,330 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onStart
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
- * Network connection status
+ * Network connection state.
+ *
+ * Provides comprehensive network status with connection quality information.
+ * Using sealed class provides exhaustive when expressions and type safety.
+ *
+ * ## Connection Types
+ * - **WiFi**: High-speed, typically unmetered
+ * - **Cellular**: Mobile data, may be metered
+ * - **Ethernet**: Wired connection
+ * - **VPN**: Virtual private network
+ * - **Other**: Other connection types
+ *
+ * @see NetworkMonitor
  */
-/**
- * Network connection status
- */
-public enum class NetworkStatus {
-    AVAILABLE,
-    UNAVAILABLE,
-    LOSING,
-    LOST
+public sealed class NetworkState {
+    /**
+     * Network is available and validated.
+     *
+     * @property connectionType Type of network connection
+     * @property isMetered Whether connection is metered (limited data)
+     * @property linkDownstreamBandwidthKbps Download bandwidth in Kbps
+     * @property linkUpstreamBandwidthKbps Upload bandwidth in Kbps
+     */
+    public data class Available(
+        public val connectionType: ConnectionType,
+        public val isMetered: Boolean = false,
+        public val linkDownstreamBandwidthKbps: Int = 0,
+        public val linkUpstreamBandwidthKbps: Int = 0
+    ) : NetworkState()
+
+    /**
+     * Network is losing connectivity.
+     * Connection will be lost soon if not restored.
+     *
+     * @property maxMsToLive Maximum time until connection loss (milliseconds)
+     */
+    public data class Losing(
+        public val maxMsToLive: Int
+    ) : NetworkState()
+
+    /**
+     * Network connection was lost.
+     */
+    public data object Lost : NetworkState()
+
+    /**
+     * Network is unavailable.
+     * No active network connection.
+     */
+    public data object Unavailable : NetworkState()
 }
 
 /**
- * Network monitoring interface
+ * Network connection type.
+ *
+ * Categorizes the type of network transport being used.
+ */
+public enum class ConnectionType {
+    /** WiFi connection */
+    WIFI,
+    /** Cellular/Mobile data connection */
+    CELLULAR,
+    /** Ethernet wired connection */
+    ETHERNET,
+    /** VPN connection */
+    VPN,
+    /** Other/Unknown connection type */
+    OTHER
+}
+
+/**
+ * Network monitoring interface.
+ *
+ * Provides reactive access to network connectivity state and connection quality.
+ * All implementations must be thread-safe and support multiple observers.
+ *
+ * ## Usage
+ * ```kotlin
+ * class MyViewModel @Inject constructor(
+ *     private val networkMonitor: NetworkMonitor
+ * ) : ViewModel() {
+ *     init {
+ *         viewModelScope.launch {
+ *             networkMonitor.networkState.collect { state ->
+ *                 when (state) {
+ *                     is NetworkState.Available -> handleConnected(state)
+ *                     is NetworkState.Losing -> warnConnectionLoss(state.maxMsToLive)
+ *                     is NetworkState.Lost, NetworkState.Unavailable -> handleDisconnected()
+ *                 }
+ *             }
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * @see NetworkState
+ * @see DefaultNetworkMonitor
  */
 public interface NetworkMonitor {
-    public val networkStatus: Flow<NetworkStatus>
+    /**
+     * Observable network state.
+     * Emits current network status and updates on changes.
+     *
+     * **Thread-safety**: Safe to collect from multiple coroutines
+     */
+    public val networkState: Flow<NetworkState>
+
+    /**
+     * Observable network state as StateFlow.
+     * Provides current value access and state observation.
+     *
+     * **Thread-safety**: Safe to access from multiple coroutines
+     */
+    public val networkStateFlow: StateFlow<NetworkState>
+
+    /**
+     * Checks if network is currently available.
+     *
+     * **Synchronous**: Returns immediate result without suspending
+     *
+     * @return true if network is available and validated, false otherwise
+     */
     public fun isNetworkAvailable(): Boolean
+
+    /**
+     * Gets current connection type.
+     *
+     * @return ConnectionType if connected, null if disconnected
+     */
+    public fun getConnectionType(): ConnectionType?
+
+    /**
+     * Checks if current connection is metered.
+     * Useful for limiting data usage on metered connections.
+     *
+     * @return true if connection is metered, false otherwise or if disconnected
+     */
+    public fun isMeteredConnection(): Boolean
 }
 
 /**
- * Default implementation of NetworkMonitor
+ * Default implementation of NetworkMonitor using Android ConnectivityManager.
+ *
+ * Production-ready implementation with:
+ * - **Reactive updates**: Flow-based state observation
+ * - **Connection quality**: Bandwidth and metering information
+ * - **Error recovery**: Automatic reconnection on network changes
+ * - **Resource cleanup**: Proper callback unregistration
+ *
+ * ## Thread Safety
+ * All methods are thread-safe and can be called from any thread.
+ * Flow collection happens on the caller's coroutine context.
+ *
+ * @property context Application context for accessing system services
+ * @see NetworkMonitor
  */
-public class DefaultNetworkMonitor(
-    private val context: Context
+@Singleton
+public class DefaultNetworkMonitor @Inject constructor(
+    @ApplicationContext private val context: Context
 ) : NetworkMonitor {
 
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    override val networkStatus: Flow<NetworkStatus> = callbackFlow {
+    private val _networkStateFlow = MutableStateFlow<NetworkState>(
+        if (isNetworkAvailable()) {
+            getCurrentNetworkState()
+        } else {
+            NetworkState.Unavailable
+        }
+    )
+
+    override val networkStateFlow: StateFlow<NetworkState> = _networkStateFlow.asStateFlow()
+
+    override val networkState: Flow<NetworkState> = callbackFlow {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                trySend(NetworkStatus.AVAILABLE)
+                Log.d(TAG, "Network available: $network")
+                val state = getNetworkState(network)
+                _networkStateFlow.value = state
+                trySend(state)
             }
 
             override fun onLosing(network: Network, maxMsToLive: Int) {
-                trySend(NetworkStatus.LOSING)
+                Log.w(TAG, "Network losing: $network (${maxMsToLive}ms to live)")
+                val state = NetworkState.Losing(maxMsToLive)
+                _networkStateFlow.value = state
+                trySend(state)
             }
 
             override fun onLost(network: Network) {
-                trySend(NetworkStatus.LOST)
+                Log.w(TAG, "Network lost: $network")
+                val state = NetworkState.Lost
+                _networkStateFlow.value = state
+                trySend(state)
             }
 
             override fun onUnavailable() {
-                trySend(NetworkStatus.UNAVAILABLE)
+                Log.w(TAG, "Network unavailable")
+                val state = NetworkState.Unavailable
+                _networkStateFlow.value = state
+                trySend(state)
+            }
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
+                Log.d(TAG, "Network capabilities changed: $network")
+                val state = getNetworkState(network, networkCapabilities)
+                _networkStateFlow.value = state
+                trySend(state)
             }
         }
 
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
 
         connectivityManager.registerNetworkCallback(request, callback)
 
+        Log.i(TAG, "Network monitoring started")
+
         // Send current status
-        trySend(if (isNetworkAvailable()) NetworkStatus.AVAILABLE else NetworkStatus.UNAVAILABLE)
+        val currentState = getCurrentNetworkState()
+        _networkStateFlow.value = currentState
+        trySend(currentState)
 
         awaitClose {
+            Log.i(TAG, "Network monitoring stopped")
             connectivityManager.unregisterNetworkCallback(callback)
         }
-    }.distinctUntilChanged()
+    }
+        .distinctUntilChanged()
+        .onStart {
+            Log.d(TAG, "Network state collection started")
+        }
+        .catch { error ->
+            Log.e(TAG, "Network monitoring error", error)
+            emit(NetworkState.Unavailable)
+        }
 
     override fun isNetworkAvailable(): Boolean {
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    override fun getConnectionType(): ConnectionType? {
+        val network = connectivityManager.activeNetwork ?: return null
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return null
+        return capabilities.getConnectionType()
+    }
+
+    override fun isMeteredConnection(): Boolean {
+        return connectivityManager.isActiveNetworkMetered
+    }
+
+    /**
+     * Gets current network state by querying active network.
+     */
+    private fun getCurrentNetworkState(): NetworkState {
+        val network = connectivityManager.activeNetwork
+        return if (network != null) {
+            getNetworkState(network)
+        } else {
+            NetworkState.Unavailable
+        }
+    }
+
+    /**
+     * Gets network state for a specific network.
+     */
+    private fun getNetworkState(
+        network: Network,
+        capabilities: NetworkCapabilities? = connectivityManager.getNetworkCapabilities(network)
+    ): NetworkState {
+        if (capabilities == null) {
+            return NetworkState.Unavailable
+        }
+
+        return if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            NetworkState.Available(
+                connectionType = capabilities.getConnectionType(),
+                isMetered = !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+                linkDownstreamBandwidthKbps = capabilities.linkDownstreamBandwidthKbps,
+                linkUpstreamBandwidthKbps = capabilities.linkUpstreamBandwidthKbps
+            )
+        } else {
+            NetworkState.Unavailable
+        }
+    }
+
+    private companion object {
+        private const val TAG = "NetworkMonitor"
+    }
+}
+
+/**
+ * Extension function to determine connection type from NetworkCapabilities.
+ */
+private fun NetworkCapabilities.getConnectionType(): ConnectionType {
+    return when {
+        hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> ConnectionType.WIFI
+        hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> ConnectionType.CELLULAR
+        hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> ConnectionType.ETHERNET
+        hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> ConnectionType.VPN
+        else -> ConnectionType.OTHER
     }
 }

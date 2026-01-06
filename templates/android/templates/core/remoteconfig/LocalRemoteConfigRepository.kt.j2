@@ -1,38 +1,80 @@
 package {{ cookiecutter.base_package }}.core.remoteconfig
 
 import android.util.Log
+import kotlinx.coroutines.delay
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Local/Fallback Remote Config implementation.
- * Android equivalent of iOS NoopRemoteConfigService.
- *
- * Used when:
+ * Local/Offline Remote Config implementation.
+ * 
+ * Provides offline-first fallback configuration when:
  * - Firebase is not configured
  * - Running in offline mode
  * - Testing without network
- *
- * Note: Caching is handled by AppState singleton for centralized state management.
+ * - Firebase dependency is excluded
+ * 
+ * ## Use Cases
+ * - **Testing**: Predictable configuration without network
+ * - **Development**: Faster iteration without Firebase setup
+ * - **Graceful degradation**: App works offline with defaults
+ * 
+ * ## Configuration
+ * All values are loaded from [RemoteConfigDefaults].
+ * Values can be updated at runtime for testing purposes.
+ * 
+ * @see RemoteConfigRepository
+ * @see FirebaseRemoteConfigRepository
  */
 @Singleton
 public class LocalRemoteConfigRepository @Inject constructor() : RemoteConfigRepository {
 
     private val values: MutableMap<String, Any> = RemoteConfigDefaults.defaults.toMutableMap()
 
-    companion object {
+    private companion object {
         private const val TAG = "LocalRemoteConfig"
+        private const val SIMULATED_DELAY_MS = 100L // Simulate network delay for realistic testing
     }
 
     init {
-        Log.i(TAG, "LocalRemoteConfigRepository initialized with ${values.size} default values")
+        Log.i(TAG, "📦 Local Remote Config initialized with ${"$"}{values.size} default values")
     }
 
-    override suspend fun fetchAndActivate() {
-        Log.i(TAG, "📦 Using local configuration defaults (${values.keys.sorted().joinToString(", ")})")
-        // No-op for local config - just use defaults
+    override suspend fun fetchAndActivate(): Result<Unit> = runCatching {
+        // Simulate network delay for realistic testing
+        delay(SIMULATED_DELAY_MS)
+        
+        val keyList = values.keys.sorted().joinToString(separator = ", ")
+        Log.i(TAG, "✅ Using local configuration defaults: ${"$"}keyList")
     }
 
+    override suspend fun getString(key: RemoteConfigKey): Result<String> = runCatching {
+        (values[key.key] as? String) ?: ""
+    }
+
+    override suspend fun getBoolean(key: RemoteConfigKey): Result<Boolean> = runCatching {
+        (values[key.key] as? Boolean) ?: false
+    }
+
+    override suspend fun getLong(key: RemoteConfigKey): Result<Long> = runCatching {
+        when (val value = values[key.key]) {
+            is Long -> value
+            is Int -> value.toLong()
+            is Number -> value.toLong()
+            else -> 0L
+        }
+    }
+
+    override suspend fun getDouble(key: RemoteConfigKey): Result<Double> = runCatching {
+        when (val value = values[key.key]) {
+            is Double -> value
+            is Float -> value.toDouble()
+            is Number -> value.toDouble()
+            else -> 0.0
+        }
+    }
+
+    // Legacy synchronous methods
     override fun getString(key: String): String {
         return (values[key] as? String) ?: ""
     }
@@ -53,23 +95,38 @@ public class LocalRemoteConfigRepository @Inject constructor() : RemoteConfigRep
     override fun getDouble(key: String): Double {
         return when (val value = values[key]) {
             is Double -> value
+            is Float -> value.toDouble()
             is Number -> value.toDouble()
             else -> 0.0
         }
     }
 
     /**
-     * Set a value for testing or development.
+     * Updates a configuration value at runtime.
+     * Useful for testing and development.
+     * 
+     * @param key Configuration key to update
+     * @param value New value
      */
-    fun setValue(key: String, value: Any) {
+    public fun setValue(key: String, value: Any) {
         values[key] = value
-        Log.d(TAG, "Set $key = $value")
+        Log.d(TAG, "Updated key='${"$"}key' to '${"$"}value'")
     }
 
     /**
-     * Clear all custom values and reset to defaults.
+     * Updates a configuration value using type-safe key.
+     * 
+     * @param key Configuration key to update
+     * @param value New value
      */
-    fun reset() {
+    public fun setValue(key: RemoteConfigKey, value: Any) {
+        setValue(key.key, value)
+    }
+
+    /**
+     * Resets all values to defaults.
+     */
+    public fun resetToDefaults() {
         values.clear()
         values.putAll(RemoteConfigDefaults.defaults)
         Log.d(TAG, "Reset to defaults")

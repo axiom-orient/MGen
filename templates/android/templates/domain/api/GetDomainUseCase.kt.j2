@@ -2,19 +2,117 @@ package {{ base_package }}.domain.{{ domain_name_lower }}.usecase
 
 import {{ base_package }}.domain.{{ domain_name_lower }}.model.{{ domain_name }}
 import {{ base_package }}.domain.{{ domain_name_lower }}.repository.{{ domain_name }}Repository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * Use case to get all {{ domain_name }} items
- */
-/**
- * Use case to get all {{ domain_name }} items
+ * Use case to retrieve all {{ domain_name }} items.
+ *
+ * Encapsulates the business logic for fetching {{ domain_name_lower }} data.
+ * Use cases represent single business operations and coordinate between
+ * repositories, services, and domain logic.
+ *
+ * ## Use Case Pattern
+ * - **Single Responsibility**: Each use case does one thing
+ * - **Business Logic**: Contains domain rules and workflows
+ * - **Repository Coordination**: Orchestrates multiple repositories if needed
+ * - **Thread Safety**: Uses Dispatchers for background work
+ *
+ * ## Why Use Cases?
+ * Instead of calling repository directly from ViewModel:
+ * - Encapsulates complex business logic
+ * - Reusable across different ViewModels
+ * - Easy to test in isolation
+ * - Clear separation of concerns
+ *
+ * ## Threading
+ * Flow-based use cases should specify dispatcher:
+ * ```kotlin
+ * repository.getAll()
+ *     .map { items -> items.sortedBy { it.name } } // Business logic
+ *     .flowOn(ioDispatcher) // Background thread
+ * ```
+ *
+ * ## invoke() Operator
+ * Use cases implement `operator fun invoke()` for clean syntax:
+ * ```kotlin
+ * // Instead of: useCase.execute()
+ * // You write:  useCase()
+ * ```
+ *
+ * ## Testing
+ * Use cases are easy to unit test:
+ * ```kotlin
+ * @Test
+ * fun testGetAll() = runTest {
+ *     val repository = Fake{{ domain_name }}Repository()
+ *     val useCase = Get{{ domain_name }}UseCase(repository, testDispatcher)
+ *
+ *     useCase().test {
+ *         assertEquals(expectedData, awaitItem())
+ *     }
+ * }
+ * ```
+ *
+ * ## Usage in ViewModel
+ * ```kotlin
+ * @HiltViewModel
+ * class ViewModel @Inject constructor(
+ *     private val getItems: Get{{ domain_name }}UseCase
+ * ) : ViewModel() {
+ *
+ *     val items: StateFlow<List<{{ domain_name }}>> = getItems()
+ *         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+ * }
+ * ```
+ *
+ * @property repository Repository for {{ domain_name_lower }} data access
+ * @property ioDispatcher Dispatcher for background operations (injected)
+ *
+ * @see {{ domain_name }}Repository
+ * @see {{ domain_name }}
  */
 public class Get{{ domain_name }}UseCase @Inject constructor(
-    private val repository: {{ domain_name }}Repository
+    private val repository: {{ domain_name }}Repository,
+    // Uncomment and inject dispatcher for production:
+    // @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
+    /**
+     * Retrieves all {{ domain_name_lower }} items as a reactive Flow.
+     *
+     * Flow emits whenever data changes in repository.
+     * Executes on IO dispatcher for optimal performance.
+     *
+     * ## Business Logic
+     * This use case can add:
+     * - Sorting (by date, name, priority)
+     * - Filtering (active items only, search query)
+     * - Mapping (domain model → UI model)
+     * - Validation (remove invalid items)
+     *
+     * ## Example with Business Logic
+     * ```kotlin
+     * operator fun invoke(filter: FilterType = FilterType.ALL): Flow<List<{{ domain_name }}>> {
+     *     return repository.getAll()
+     *         .map { items ->
+     *             items
+     *                 .filter { it.isValid() } // Remove invalid
+     *                 .filter { matchesFilter(it, filter) } // Apply filter
+     *                 .sortedByDescending { it.createdAt } // Newest first
+     *         }
+     *         .flowOn(ioDispatcher)
+     * }
+     * ```
+     *
+     * @return Flow of {{ domain_name_lower }} items list, emits on every data change
+     */
     public operator fun invoke(): Flow<List<{{ domain_name }}>> {
         return repository.getAll()
+            // Add business logic transformations here
+            // .map { items -> items.sortedBy { it.name } }
+            // .flowOn(ioDispatcher) // Uncomment when dispatcher is injected
     }
 }

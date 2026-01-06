@@ -33,14 +33,45 @@ import {{ cookiecutter.base_package }}.R
 import {{ cookiecutter.base_package }}.lifecycle.AppStartupState
 
 /**
- * Force Update Screen.
- * Android equivalent of iOS forceUpdate view state.
+ * Force update screen that blocks app usage until user updates.
  *
- * Displayed when the app version is older than the required minimum version.
- * Blocks app usage until user updates.
+ * Displayed when the current app version is below the minimum required version
+ * specified in Remote Config. Prevents app usage to ensure users are on supported versions.
+ *
+ * ## Features
+ * - **Version Comparison**: Shows current vs required version
+ * - **Direct Store Link**: Button opens Play Store for seamless update
+ * - **Non-Dismissible**: Blocks all app functionality until update
+ * - **Priority**: Lower than Maintenance mode, higher than normal errors
+ *
+ * ## Update Flow
+ * 1. User launches app
+ * 2. Remote Config fetch determines minimum version requirement
+ * 3. UpdateChecker compares current version with minimum required
+ * 4. If outdated, this screen is shown
+ * 5. User taps "Update" → Play Store opens
+ * 6. After update, app restarts with new version
+ *
+ * ## Version Format
+ * Supports semantic versioning (semver): MAJOR.MINOR.PATCH
+ * - Example: "2.1.0" > "1.9.5"
+ * - Comparison logic in UpdateChecker.kt
+ *
+ * ## Customization
+ * Update the accent color and icon to match your brand:
+ * ```kotlin
+ * // Accent color for icon and button
+ * Color(0xFFFF9800)  // Orange (warning color)
+ * ```
+ *
+ * @param state Force update state with version info and store URL
+ * @param modifier Modifier for the root container
+ *
+ * @see AppStartupState.ForceUpdate
+ * @see UpdateChecker
  */
 @Composable
-fun ForceUpdateScreen(
+public fun ForceUpdateScreen(
     state: AppStartupState.ForceUpdate,
     modifier: Modifier = Modifier
 ) {

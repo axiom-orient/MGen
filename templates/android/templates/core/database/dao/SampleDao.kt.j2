@@ -1,16 +1,112 @@
 package {{ cookiecutter.base_package }}.core.database.dao
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 import {{ cookiecutter.base_package }}.core.database.entity.SampleEntity
 
+/**
+ * DAO for SampleEntity - demonstrates Room database operations.
+ *
+ * Simple CRUD (Create, Read, Update, Delete) example for learning Room patterns.
+ *
+ * ## Usage Example
+ * ```kotlin
+ * @Inject lateinit var dao: SampleDao
+ *
+ * // Create
+ * dao.insert(SampleEntity.create("1", "Hello"))
+ *
+ * // Read (reactive)
+ * dao.getAll().collect { items -> updateUI(items) }
+ *
+ * // Update
+ * dao.update(item.copy(payload = "Modified"))
+ *
+ * // Delete
+ * dao.deleteById("1")
+ * ```
+ *
+ * @see SampleEntity
+ */
 @Dao
-interface SampleDao {
-    @Query("SELECT * FROM sample_entities WHERE id = :id")
-    suspend fun getById(id: String): SampleEntity?
+public interface SampleDao {
 
+    // ══════════════════════════════════════════════════════════════
+    // CREATE
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Inserts a new item. Replaces if ID already exists.
+     */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: SampleEntity)
+    public suspend fun insert(item: SampleEntity)
+
+    /**
+     * Inserts multiple items.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    public suspend fun insertAll(items: List<SampleEntity>)
+
+    // ══════════════════════════════════════════════════════════════
+    // READ
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Observes all items, sorted by newest first.
+     * Emits updates whenever data changes.
+     */
+    @Query("SELECT * FROM sample_entities ORDER BY updated_at DESC")
+    public fun getAll(): Flow<List<SampleEntity>>
+
+    /**
+     * Gets a single item by ID.
+     */
+    @Query("SELECT * FROM sample_entities WHERE id = :id")
+    public suspend fun getById(id: String): SampleEntity?
+
+    /**
+     * Gets total count of items.
+     */
+    @Query("SELECT COUNT(*) FROM sample_entities")
+    public suspend fun getCount(): Int
+
+    // ══════════════════════════════════════════════════════════════
+    // UPDATE
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Updates an existing item.
+     * @return Number of rows updated (0 or 1)
+     */
+    @Update
+    public suspend fun update(item: SampleEntity): Int
+
+    // ══════════════════════════════════════════════════════════════
+    // DELETE
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Deletes an item.
+     */
+    @Delete
+    public suspend fun delete(item: SampleEntity)
+
+    /**
+     * Deletes item by ID.
+     * @return Number of rows deleted (0 or 1)
+     */
+    @Query("DELETE FROM sample_entities WHERE id = :id")
+    public suspend fun deleteById(id: String): Int
+
+    /**
+     * Deletes all items.
+     * @return Number of rows deleted
+     */
+    @Query("DELETE FROM sample_entities")
+    public suspend fun deleteAll(): Int
 }

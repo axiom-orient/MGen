@@ -28,15 +28,56 @@ import androidx.compose.ui.unit.dp
 import {{ cookiecutter.base_package }}.lifecycle.AppStartupState
 
 /**
- * Maintenance Screen.
- * Android equivalent of iOS MaintenanceView.
+ * Maintenance screen displayed during server maintenance periods.
  *
- * Displayed when the server is under maintenance.
- * Blocks app usage until maintenance is complete.
- * Priority: Higher than ForceUpdate.
+ * Blocks all app functionality when the server is under maintenance.
+ * Shows a localized maintenance message and allows users to check if maintenance is complete.
+ *
+ * ## Features
+ * - **Localized Message**: Displays maintenance message from Remote Config
+ * - **Refresh Button**: Allows users to retry and check maintenance status
+ * - **Highest Priority**: Overrides ForceUpdate and other error states
+ * - **Graceful Blocking**: Prevents app usage without crashing
+ *
+ * ## Priority Order
+ * AppLifecycleManager checks states in this order:
+ * 1. **Maintenance** ← Highest priority (this screen)
+ * 2. ForceUpdate
+ * 3. Error
+ * 4. Ready
+ *
+ * ## Maintenance Flow
+ * 1. Remote Config sets `maintenance_mode_enabled = true`
+ * 2. App fetches config during cold start or foreground return
+ * 3. AppState detects maintenance mode
+ * 4. This screen is shown immediately
+ * 5. User taps "Refresh" → Re-fetches Remote Config
+ * 6. If maintenance ended, app proceeds to Ready state
+ *
+ * ## Remote Config Keys
+ * ```json
+ * {
+ *   "maintenance_mode_enabled": true,
+ *   "maintenance_message": "{\"en\": \"Under maintenance...\", \"ko\": \"점검 중...\"}"
+ * }
+ * ```
+ *
+ * ## Customization
+ * Update the accent color to match your brand:
+ * ```kotlin
+ * // Accent color for icon and button
+ * Color(0xFF607D8B)  // Blue-grey
+ * ```
+ *
+ * @param state Maintenance state containing localized message
+ * @param onRefresh Callback to retry cold start and check if maintenance ended
+ * @param modifier Modifier for the root container
+ *
+ * @see AppStartupState.Maintenance
+ * @see AppLifecycleManager.retry
  */
 @Composable
-fun MaintenanceScreen(
+public fun MaintenanceScreen(
     state: AppStartupState.Maintenance,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier

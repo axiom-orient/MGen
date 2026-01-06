@@ -2,15 +2,72 @@ package {{ cookiecutter.base_package }}.core.database
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import {{ cookiecutter.base_package }}.core.database.dao.SampleDao
 import {{ cookiecutter.base_package }}.core.database.entity.SampleEntity
+import {{ cookiecutter.base_package }}.core.database.util.Converters
 
+/**
+ * Room Database for the application.
+ *
+ * Production-ready configuration with:
+ * - **Type converters**: Automatic conversion for common types (Date, List, etc.)
+ * - **Export schema**: Enabled for migration validation (set to true in production)
+ * - **Migration support**: Use proper migrations instead of destructive fallback
+ *
+ * ## Database Version Management
+ * - Version 1: Initial schema with SampleEntity
+ * - **IMPORTANT**: Increment version when schema changes
+ * - Always provide migrations between versions for production
+ *
+ * ## Usage
+ * Database is provided via Hilt DI:
+ * ```kotlin
+ * @Inject lateinit var database: AppDatabase
+ * val sampleDao = database.sampleDao()
+ * ```
+ *
+ * ## Adding New Entities
+ * 1. Create entity class annotated with @Entity
+ * 2. Add to entities array in @Database annotation
+ * 3. Create corresponding DAO interface
+ * 4. Add DAO accessor method
+ * 5. Increment database version
+ * 6. Provide migration if needed
+ *
+ * @see SampleEntity
+ * @see SampleDao
+ * @see Converters
+ */
 @Database(
-    entities = [SampleEntity::class],
+    entities = [
+        SampleEntity::class,
+        // Add your app-specific entities here
+    ],
     version = 1,
-    exportSchema = false
+    exportSchema = true, // Set to true for production to enable schema validation
+    autoMigrations = [
+        // Add AutoMigration annotations here for simple schema changes
+        // Example: AutoMigration(from = 1, to = 2)
+    ]
 )
-abstract class AppDatabase : RoomDatabase() {
-    // Replace SampleEntity/SampleDao with your app-specific tables.
-    abstract fun sampleDao(): SampleDao
+@TypeConverters(Converters::class)
+public abstract class AppDatabase : RoomDatabase() {
+
+    /**
+     * Provides access to Sample entity operations.
+     * Replace with your app-specific DAOs.
+     *
+     * @return SampleDao instance
+     */
+    public abstract fun sampleDao(): SampleDao
+
+    /**
+     * Add your app-specific DAO accessors here.
+     * Example:
+     * ```kotlin
+     * abstract fun userDao(): UserDao
+     * abstract fun settingsDao(): SettingsDao
+     * ```
+     */
 }

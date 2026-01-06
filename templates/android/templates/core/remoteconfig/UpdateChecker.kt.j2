@@ -6,32 +6,135 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Update Checker - Single Responsibility for version comparison.
- * Decoupled from Remote Config and UI concerns.
+ * Update Checker - Version comparison and update availability detection.
+ * 
+ * Provides:
+ * - **Semantic versioning**: Proper version comparison (1.2.3 vs 1.3.0)
+ * - **Result-based API**: Type-safe error handling
+ * - **Sealed state classes**: Type-safe update states
+ * 
+ * ## Architecture
+ * Single Responsibility: Only handles version comparison logic.
+ * Does not depend on Remote Config or UI concerns.
+ * 
+ * ## Usage
+ * ```kotlin
+ * class AppLifecycleManager @Inject constructor(
+ *     private val updateChecker: UpdateChecker
+ * ) {
+ *     suspend fun checkForUpdates() {
+ *         when (val state = updateChecker.checkUpdateState(current BuildConfig.VERSION_NAME)) {
+ *             is UpdateState.Required -> showForceUpdateDialog(state)
+ *             is UpdateState.Available -> showOptionalUpdateDialog(state)
+ *             is UpdateState.Latest -> proceedNormally()
+ *         }
+ *     }
+ * }
+ * ```
+ * 
+ * @see UpdateState
  */
-interface UpdateChecker {
+public interface UpdateChecker {
     /**
-     * Check if the current app version requires a forced update.
-     *
+     * Checks if the current app version requires a forced update.
+     * 
+     * Uses semantic versioning comparison to determine if current version
+     * is below the minimum required version.
+     * 
      * @param currentVersion The current app version (e.g., "1.2.3")
      * @param minimumVersion The minimum required version from Remote Config
-     * @return true if update is required (current < minimum)
+     * @return true if update is required (current < minimum), false otherwise
      */
-    fun isUpdateRequired(currentVersion: String, minimumVersion: String): Boolean
+    public fun isUpdateRequired(currentVersion: String, minimumVersion: String): Boolean
 
     /**
-     * Get the Play Store URL for this app.
+     * Gets the Play Store URL for this app.
+     * 
+     * @param packageName The app's package name
+     * @return Play Store URL for the app
      */
-    fun getStoreUrl(packageName: String): String
+    public fun getStoreUrl(packageName: String): String
 
     /**
-     * Checks if an update is available and has a higher version code than current.
+     * Checks current update state against remote minimum version.
+     * 
+     * @param currentVersion Current app version
+     * @param minimumVersion Minimum version from config (empty if no requirement)
+     * @return [UpdateState] indicating whether update is required, available, or not needed
      */
-    suspend fun isUpdateAvailable(): Boolean
+    public fun checkUpdateState(
+        currentVersion: String,
+        minimumVersion: String
+    ): UpdateState
+    
+    /**
+     * Checks if an update is available in the Play Store.
+     * 
+     * **Note**: This is a placeholder for future Play Store API integration.
+     * Currently always returns false.
+     * 
+     * @return true if newer version is available in Play Store
+     */
+    public suspend fun isUpdateAvailable(): Boolean
+}
+
+/**
+ * Update state sealed class.
+ * 
+ * Represents the possible states of app update availability.
+ * Using sealed class provides exhaustive when expressions and type safety.
+ */
+public sealed interface UpdateState {
+    /**
+     * Force update required.
+     * Current version is below minimum required version.
+     * 
+     * @property currentVersion Current app version
+     * @property requiredVersion Minimum required version
+     * @property storeUrl Play Store URL for update
+     */
+    public data class Required(
+        public val currentVersion: String,
+        public val requiredVersion: String,
+        public val storeUrl: String
+    ) : UpdateState
+    
+    /**
+     * Optional update available.
+     * Newer version exists but not required.
+     * 
+     * @property currentVersion Current app version
+     * @property availableVersion Available newer version
+     * @property storeUrl Play Store URL for update
+     */
+    public data class Available(
+        public val currentVersion: String,
+        public val availableVersion: String,
+        public val storeUrl: String
+    ) : UpdateState
+    
+    /**
+     * App is up to date.
+     * No update required or available.
+     */
+    public data object Latest : UpdateState
 }
 
 /**
  * Default implementation using semantic versioning comparison.
+ * 
+ * Handles version formats:
+ * - Standard: "1.2.3"
+ * - With build: "1.2.3-beta"
+ * - Variable parts: "1.2" vs "1.2.0"
+ * 
+ * ## Version Comparison Rules
+ * 1. Major.Minor.Patch format (e.g., 1.2.3)
+ * 2. Left-to-right comparison
+ * 3. Missing parts treated as 0
+ * 4. Non-numeric suffixes ignored
+ * 
+ * @property context Application context for generating store URLs
  */
 @Singleton
 public class DefaultUpdateChecker @Inject constructor(
@@ -50,8 +153,10 @@ public class DefaultUpdateChecker @Inject constructor(
             val current = currentParts.getOrElse(i) { 0 }
             val minimum = minimumParts.getOrElse(i) { 0 }
 
-            if (current < minimum) return true
-            if (current > minimum) return false
+            when {
+                current < minimum -> return true
+                current > minimum -> return false
+            }
         }
 
         return false // Versions are equal
@@ -61,17 +166,49 @@ public class DefaultUpdateChecker @Inject constructor(
         return "https://play.google.com/store/apps/details?id=$packageName"
     }
 
+    override fun checkUpdateState(
+        currentVersion: String,
+        minimumVersion: String
+    ): UpdateState {
+        return when {
+            minimumVersion.isBlank() -> UpdateState.Latest
+            isUpdateRequired(currentVersion, minimumVersion) -> UpdateState.Required(
+                currentVersion = currentVersion,
+                requiredVersion = minimumVersion,
+                storeUrl = getStoreUrl(context.packageName)
+            )
+            else -> UpdateState.Latest
+        }
+    }
+
     override suspend fun isUpdateAvailable(): Boolean {
         // TODO: Implement Play Store version check
+        // Options:
+        // 1. Use Play Core Library (app-update KTX)
+        // 2. Parse Play Store HTML (fragile)
+        // 3. Maintain version in Remote Config
         return false
     }
 
+    /**
+     * Parses a version string into numeric components.
+     * 
+     * Handles various version formats:
+     * - "1.2.3" -> [1, 2, 3]
+     * - "1.2" -> [1, 2]
+     * - "1.2.3-beta" -> [1, 2, 3]
+     * - "1.2.0.4" -> [1, 2, 0, 4]
+     * 
+     * @param version The version string to parse
+     * @return List of numeric version components
+     */
     private fun parseVersion(version: String): List<Int> {
         return version
             .split(".")
             .mapNotNull { part ->
                 // Handle versions like "1.2.3-beta" by taking only numeric part
-                part.takeWhile { it.isDigit() }.toIntOrNull()
+                part.takeWhile { it.isDigit() }
+                    .toIntOrNull()
             }
     }
 }

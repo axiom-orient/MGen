@@ -1,13 +1,142 @@
 package {{ base_package }}.service.{{ service_name_lower }}.model
 
+import kotlinx.serialization.Serializable
+
 /**
- * Response model for {{ service_name }} service
+ * Response model for {{ service_name }} service.
+ *
+ * Data Transfer Object (DTO) representing the structure of data
+ * received from or sent to the {{ service_name }} API.
+ *
+ * ## DTOs vs Domain Models
+ * - **DTO (This)**: Matches API structure, used for serialization
+ * - **Domain Model**: Business logic structure, framework-independent
+ *
+ * ### Why Separate?
+ * ```
+ * API Response (DTO) → Transformation → Domain Model → ViewModel → UI
+ * ```
+ *
+ * Benefits:
+ * - API changes don't break domain layer
+ * - Can merge multiple DTOs into one domain model
+ * - Domain model optimized for business logic, not API structure
+ *
+ * ## Serialization
+ * Uses kotlinx.serialization for JSON <-> Kotlin conversion:
+ * ```kotlin
+ * @Serializable
+ * data class {{ service_name }}Response(
+ *     @SerialName("item_id") // Maps "item_id" JSON field to "id" property
+ *     val id: String,
+ *
+ *     val data: String,
+ *
+ *     @SerialName("created_timestamp") // Maps different field names
+ *     val timestamp: Long
+ * )
+ * ```
+ *
+ * ## JSON Example
+ * ```json
+ * {
+ *   "id": "abc123",
+ *   "data": "Sample response data",
+ *   "timestamp": 1704556800000
+ * }
+ * ```
+ *
+ * ## Transformation to Domain
+ * DTOs should have extension functions for domain conversion:
+ * ```kotlin
+ * fun {{ service_name }}Response.toDomain() = {{ service_name }}(
+ *     id = id,
+ *     name = data, // Transform field names/types
+ *     createdAt = timestamp
+ * )
+ * ```
+ *
+ * ## Nullable Fields
+ * Use nullable types for optional API fields:
+ * ```kotlin
+ * @Serializable
+ * data class {{ service_name }}Response(
+ *     val id: String,
+ *     val data: String,
+ *     val timestamp: Long,
+ *     val optionalField: String? = null // Optional, defaults to null
+ * )
+ * ```
+ *
+ * ## Default Values
+ * Provide defaults for backward compatibility:
+ * ```kotlin
+ * @Serializable
+ * data class {{ service_name }}Response(
+ *     val id: String,
+ *     val data: String,
+ *     val timestamp: Long,
+ *     val version: Int = 1 // Default if not present in JSON
+ * )
+ * ```
+ *
+ * ## Nested Objects
+ * DTOs can contain nested structures:
+ * ```kotlin
+ * @Serializable
+ * data class {{ service_name }}Response(
+ *     val id: String,
+ *     val metadata: Metadata,
+ *     val authors: List<Author>
+ * )
+ *
+ * @Serializable
+ * data class Metadata(val version: Int, val tags: List<String>)
+ *
+ * @Serializable
+ * data class Author(val id: String, val name: String)
+ * ```
+ *
+ * ## Lists and Collections
+ * Handle API arrays:
+ * ```kotlin
+ * @Serializable
+ * data class {{ service_name }}ListResponse(
+ *     val items: List<{{ service_name }}Response>,
+ *     val totalCount: Int,
+ *     val page: Int
+ * )
+ * ```
+ *
+ * @property id Unique identifier from API
+ * @property data Response data content
+ * @property timestamp Server-side timestamp in milliseconds (Unix epoch)
+ *
+ * @see {{ service_name }}Service
  */
-/**
- * Response model for {{ service_name }} service
- */
+@Serializable
 public data class {{ service_name }}Response(
     public val id: String,
     public val data: String,
     public val timestamp: Long
-)
+) {
+    public companion object {
+        /**
+         * Creates a response for testing purposes.
+         *
+         * @param id Test ID (default: "test-id")
+         * @param data Test data (default: "test data")
+         * @return Test response instance
+         */
+        public fun createTest(
+            id: String = "test-id",
+            data: String = "test data"
+        ): {{ service_name }}Response {
+            return {{ service_name }}Response(
+                id = id,
+                data = data,
+                timestamp = System.currentTimeMillis()
+            )
+        }
+    }
+}

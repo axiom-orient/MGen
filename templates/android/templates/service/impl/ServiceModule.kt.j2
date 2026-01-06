@@ -4,20 +4,236 @@ import {{ base_package }}.service.{{ service_name_lower }}.{{ service_name }}Ser
 import {{ base_package }}.service.{{ service_name_lower }}.impl.Live{{ service_name }}Service
 import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Hilt module for {{ service_name }} service
+ * Hilt dependency injection module for {{ service_name }} service layer.
+ *
+ * Provides bindings for service implementations and related dependencies
+ * (Retrofit API, OkHttpClient, Interceptors, etc.).
+ *
+ * ## Module Structure
+ * - **Abstract methods with @Binds**: Interface-to-implementation bindings
+ * - **Companion object with @Provides**: Complex object construction
+ *
+ * ## Service Layer DI Pattern
+ * ```kotlin
+ * @Module
+ * @InstallIn(SingletonComponent::class)
+ * abstract class {{ service_name }}ServiceModule {
+ *
+ *     // Simple binding: Interface → Implementation
+ *     @Binds
+ *     @Singleton
+ *     abstract fun bindService(impl: Live{{ service_name}}Service): {{ service_name }}Service
+ *
+ *     companion object {
+ *         // Complex construction: Retrofit API
+ *         @Provides
+ *         @Singleton
+ *         fun provideApi(retrofit: Retrofit): {{ service_name }}Api {
+ *             return retrofit.create({{ service_name }}Api::class.java)
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ## Complete Network Module Example
+ * For a production app, you'd typically have:
+ * ```kotlin
+ * @Module
+ * @InstallIn(SingletonComponent::class)
+ * object NetworkModule {
+ *
+ *     @Provides
+ *     @Singleton
+ *     fun provideJson(): Json {
+ *         return Json {
+ *             ignoreUnknownKeys = true
+ *             isLenient = true
+ *             encodeDefaults = true
+ *         }
+ *     }
+ *
+ *     @Provides
+ *     @Singleton
+ *     fun provideOkHttpClient(
+ *         authInterceptor: AuthInterceptor,
+ *         networkMonitor: NetworkMonitor
+ *     ): OkHttpClient {
+ *         return OkHttpClient.Builder()
+ *             .addInterceptor(authInterceptor)
+ *             .addInterceptor(HttpLoggingInterceptor().apply {
+ *                 level = if (BuildConfig.DEBUG) {
+ *                     HttpLoggingInterceptor.Level.BODY
+ *                 } else {
+ *                     HttpLoggingInterceptor.Level.NONE
+ *                 }
+ *             })
+ *             .connectTimeout(30, TimeUnit.SECONDS)
+ *             .readTimeout(30, TimeUnit.SECONDS)
+ *             .writeTimeout(30, TimeUnit.SECONDS)
+ *             .build()
+ *     }
+ *
+ *     @Provides
+ *     @Singleton
+ *     fun provideRetrofit(
+ *         okHttpClient: OkHttpClient,
+ *         json: Json
+ *     ): Retrofit {
+ *         return Retrofit.Builder()
+ *             .baseUrl(BuildConfig.API_BASE_URL)
+ *             .client(okHttpClient)
+ *             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+ *             .build()
+ *     }
+ * }
+ * ```
+ *
+ * ## Qualifiers for Multiple Instances
+ * When you need different configurations:
+ * ```kotlin
+ * @Qualifier
+ * @Retention(AnnotationRetention.BINARY)
+ * annotation class AuthenticatedApi
+ *
+ * @Qualifier
+ * @Retention(AnnotationRetention.BINARY)
+ * annotation class PublicApi
+ *
+ * @Module
+ * @InstallIn(SingletonComponent::class)
+ * object ApiModule {
+ *
+ *     @Provides
+ *     @Singleton
+ *     @AuthenticatedApi
+ *     fun provideAuthenticatedRetrofit(
+ *         client: OkHttpClient
+ *     ): Retrofit {
+ *         return Retrofit.Builder()
+ *             .baseUrl("https://api.example.com/v1/auth/")
+ *             .client(client)
+ *             .build()
+ *     }
+ *
+ *     @Provides
+ *     @Singleton
+ *     @PublicApi
+ *     fun providePublicRetrofit(): Retrofit {
+ *         return Retrofit.Builder()
+ *             .baseUrl("https://api.example.com/v1/public/")
+ *             .build()
+ *     }
+ *
+ *     @Provides
+ *     fun provide{{ service_name }}Api(
+ *         @AuthenticatedApi retrofit: Retrofit
+ *     ): {{ service_name }}Api {
+ *         return retrofit.create({{ service_name }}Api::class.java)
+ *     }
+ * }
+ * ```
+ *
+ * ## Interceptor Examples
+ * Common interceptors to add:
+ * ```kotlin
+ * // Auth token interceptor
+ * class AuthInterceptor @Inject constructor(
+ *     private val tokenProvider: TokenProvider
+ * ) : Interceptor {
+ *     override fun intercept(chain: Interceptor.Chain): Response {
+ *         val token = tokenProvider.currentToken()
+ *         val request = chain.request().newBuilder()
+ *             .header("Authorization", "Bearer ${"$"}token")
+ *             .build()
+ *         return chain.proceed(request)
+ *     }
+ * }
+ *
+ * // Network monitoring interceptor
+ * class NetworkInterceptor @Inject constructor(
+ *     private val networkMonitor: NetworkMonitor
+ * ) : Interceptor {
+ *     override fun intercept(chain: Interceptor.Chain): Response {
+ *         if (!networkMonitor.isOnline()) {
+ *             throw NoConnectivityException()
+ *         }
+ *         return chain.proceed(chain.request())
+ *     }
+ * }
+ *
+ * // Request/response logging
+ * @Provides
+ * fun provideLoggingInterceptor(): HttpLoggingInterceptor {
+ *     return HttpLoggingInterceptor().apply {
+ *         level = if (BuildConfig.DEBUG) {
+ *             HttpLoggingInterceptor.Level.BODY
+ *         } else {
+ *             HttpLoggingInterceptor.Level.BASIC
+ *         }
+ *     }
+ * }
+ * ```
+ *
+ * ## Testing
+ * Replace in tests with fake implementations:
+ * ```kotlin
+ * @TestInstallIn(
+ *     components = [SingletonComponent::class],
+ *     replaces = [{{ service_name }}ServiceModule::class]
+ * )
+ * @Module
+ * abstract class Test{{ service_name }}ServiceModule {
+ *     @Binds
+ *     abstract fun bindService(impl: Fake{{ service_name }}Service): {{ service_name }}Service
+ * }
+ * ```
+ *
+ * @see {{ service_name }}Service
+ * @see Live{{ service_name }}Service
  */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class {{ service_name }}ServiceModule {
+public abstract class {{ service_name }}ServiceModule {
 
+    /**
+     * Binds {{ service_name }}Service interface to production implementation.
+     *
+     * @param impl Production service implementation
+     * @return {{ service_name }}Service interface
+     */
     @Binds
     @Singleton
-    abstract fun bind{{ service_name }}Service(
+    public abstract fun bind{{ service_name }}Service(
         impl: Live{{ service_name }}Service
     ): {{ service_name }}Service
+
+    /**
+     * Companion object for complex object construction.
+     *
+     * Add @Provides methods here for:
+     * - Retrofit API interfaces
+     * - OkHttpClient configuration
+     * - Interceptors
+     * - JSON converters
+     *
+     * Example:
+     * ```kotlin
+     * companion object {
+     *     @Provides
+     *     @Singleton
+     *     fun provide{{ service_name }}Api(retrofit: Retrofit): {{ service_name }}Api {
+     *         return retrofit.create({{ service_name }}Api::class.java)
+     *     }
+     * }
+     * ```
+     */
+    public companion object {
+        // TODO: Add @Provides methods for Retrofit, OkHttpClient, etc.
+    }
 }

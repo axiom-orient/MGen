@@ -9,15 +9,134 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Hilt module for {{ domain_name }} domain
+ * Hilt dependency injection module for {{ domain_name }} domain layer.
+ *
+ * Provides bindings for repository implementations and use cases.
+ * Uses `@Binds` for interface-to-implementation mapping (zero runtime overhead).
+ *
+ * ## Module Organization
+ * - **InstallIn(SingletonComponent::class)**: Available application-wide
+ * - **@Singleton**: Single instance shared across app
+ * - **Abstract class**: Dagger/Hilt generates implementation code
+ *
+ * ## When to Use @Binds vs @Provides
+ *
+ * ### Use @Binds (This Module)
+ * When binding interface to single implementation:
+ * ```kotlin
+ * @Binds
+ * abstract fun bindRepository(impl: DefaultRepo): RepoInterface
+ * ```
+ * Benefits:
+ * - More efficient (no method body, Dagger generates code)
+ * - Clearer intent (simple interface mapping)
+ *
+ * ### Use @Provides
+ * When you need:
+ * - Multiple implementations:
+ *   ```kotlin
+ *   @Provides @Named("remote")
+ *   fun provideRemoteRepo(...): Repository = RemoteRepositoryImpl(...)
+ *
+ *   @Provides @Named("local")
+ *   fun provideLocalRepo(...): Repository = LocalRepositoryImpl(...)
+ *   ```
+ *
+ * - Complex construction logic:
+ *   ```kotlin
+ *   @Provides
+ *   fun provideRepository(
+ *       dao: Dao,
+ *       api: Api,
+ *       prefs: Prefs
+ *   ): Repository {
+ *       return if (BuildConfig.USE_MOCK) {
+ *           MockRepository()
+ *       } else {
+ *           DefaultRepository(dao, api, prefs)
+ *       }
+ *   }
+ *   ```
+ *
+ * - Return type different from implementation:
+ *   ```kotlin
+ *   @Provides
+ *   fun provideExecutor(): Executor = Executors.newSingleThreadExecutor()
+ *   ```
+ *
+ * ## Scopes
+ * - **@Singleton**: One instance per app (use for stateless repositories)
+ * - **@ActivityRetainedScoped**: Survives config changes
+ * - **@ActivityScoped**: New instance per Activity
+ * - **@ViewModelScoped**: Scoped to ViewModel lifecycle
+ *
+ * ## Testing
+ * For tests, replace this module with test module:
+ * ```kotlin
+ * @TestInstallIn(
+ *     components = [SingletonComponent::class],
+ *     replaces = [{{ domain_name }}DomainModule::class]
+ * )
+ * @Module
+ * abstract class Test{{ domain_name }}DomainModule {
+ *     @Binds
+ *     abstract fun bindRepository(impl: Fake{{ domain_name }}Repository): {{ domain_name }}Repository
+ * }
+ * ```
+ *
+ * ## Complete Domain Module Example
+ * For a more complex domain with multiple dependencies:
+ * ```kotlin
+ * @Module
+ * @InstallIn(SingletonComponent::class)
+ * abstract class {{ domain_name }}DomainModule {
+ *
+ *     @Binds
+ *     @Singleton
+ *     abstract fun bindRepository(impl: Default{{ domain_name }}Repository): {{ domain_name }}Repository
+ *
+ *     companion object {
+ *         @Provides
+ *         @Singleton
+ *         fun provide{{ domain_name }}Api(retrofit: Retrofit): {{ domain_name }}Api {
+ *             return retrofit.create({{ domain_name }}Api::class.java)
+ *         }
+ *
+ *         @Provides
+ *         @Singleton
+ *         fun provide{{ domain_name }}Database(context: Context): {{ domain_name }}Database {
+ *             return Room.databaseBuilder(
+ *                 context,
+ *                 {{ domain_name }}Database::class.java,
+ *                 "{{ domain_name_lower }}_db"
+ *             ).build()
+ *         }
+ *
+ *         @Provides
+ *         fun provide{{ domain_name }}Dao(database: {{ domain_name }}Database) = database.dao()
+ *     }
+ * }
+ * ```
+ *
+ * @see {{ domain_name }}Repository
+ * @see Default{{ domain_name }}Repository
  */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class {{ domain_name }}DomainModule {
+public abstract class {{ domain_name }}DomainModule {
 
+    /**
+     * Binds repository interface to default implementation.
+     *
+     * Dagger will automatically construct Default{{ domain_name }}Repository
+     * and provide it wherever {{ domain_name }}Repository is injected.
+     *
+     * @param impl Repository implementation (Dagger constructs this)
+     * @return Repository interface
+     */
     @Binds
     @Singleton
-    abstract fun bind{{ domain_name }}Repository(
+    public abstract fun bind{{ domain_name }}Repository(
         impl: Default{{ domain_name }}Repository
     ): {{ domain_name }}Repository
 }

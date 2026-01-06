@@ -6,9 +6,12 @@ import {{ cookiecutter.base_package }}.AppState
 import {{ cookiecutter.base_package }}.BuildConfig
 import {{ cookiecutter.base_package }}.core.remoteconfig.RemoteConfigRepository
 import {{ cookiecutter.base_package }}.core.remoteconfig.UpdateChecker
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,19 +22,73 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Manages application lifecycle and cold start sequence.
- * Android equivalent of iOS ApplicationLifecycle + AppReducer pattern.
+ * Application lifecycle manager with structured concurrency and error recovery.
  *
- * Responsibilities:
- * - Execute cold start sequence (Remote Config → Analytics → Ready)
- * - Handle startup errors with retry logic
- * - Check for force updates (delegated to UpdateChecker)
- * - Manage app foreground/background transitions
+ * Manages the complete application startup sequence and lifecycle transitions
+ * using Kotlin coroutines and StateFlow for reactive state management.
  *
- * Decoupling:
- * - Version comparison → UpdateChecker (SRP)
- * - State persistence → AppState singleton
- * - UI display → Composables observe state
+ * ## Responsibilities
+ * - **Cold Start Sequence**: Remote Config → Analytics → Ready
+ * - **Error Recovery**: Graceful fallback to cached values or defaults
+ * - **Force Updates**: Check version requirements from Remote Config
+ * - **Lifecycle Transitions**: Handle foreground/background state
+ * - **Maintenance Mode**: Detect and respond to maintenance flags
+ *
+ * ## Architecture Patterns
+ * - **Structured Concurrency**: Uses SupervisorJob for resilient coroutines
+ * - **Result Monad**: Handles all AppState operations with Result<T>
+ * - **State Machine**: Tracks startup states via AppStartupState sealed class
+ * - **Error Recovery**: Fallback strategies matching iOS behavior
+ *
+ * ## Cold Start Sequence
+ * 1. Fetch Remote Config
+ * 2. Sync to AppState (persists values)
+ * 3. Check Maintenance Mode (highest priority)
+ * 4. Check Force Update requirement
+ * 5. Initialize Analytics
+ * 6. Transition to Ready state
+ *
+ * ## Error Handling Strategy
+ * - **First Launch + No Network**: Use defaults, proceed
+ * - **Valid Cache Exists**: Use cached values, proceed
+ * - **Expired Cache + Network Fail**: Show error with retry
+ *
+ * ## Usage
+ * ```kotlin
+ * @Inject lateinit var lifecycleManager: AppLifecycleManager
+ *
+ * // Initialize on app start
+ * lifecycleManager.initialize()
+ *
+ * // Observe startup state
+ * lifecycleManager.startupState.collect { state ->
+ *     when (state) {
+ *         is AppStartupState.Splash -> showSplash()
+ *         is AppStartupState.Loading -> showLoading(state.progress)
+ *         is AppStartupState.Ready -> navigateToHome()
+ *         is AppStartupState.Error -> showError(state)
+ *         is AppStartupState.Maintenance -> showMaintenance(state)
+ *         is AppStartupState.ForceUpdate -> showForceUpdate(state)
+ *     }
+ * }
+ *
+ * // Handle lifecycle transitions
+ * override fun onResume() {
+ *     lifecycleManager.onForeground()
+ * }
+ *
+ * override fun onPause() {
+ *     lifecycleManager.onBackground()
+ * }
+ * ```
+ *
+ * @property remoteConfigRepository Remote Config data source
+ * @property updateChecker Version comparison logic
+ * @property appState Application state management
+ *
+ * @see AppStartupState
+ * @see AppState
+ * @see RemoteConfigRepository
  */
 @Singleton
 public class AppLifecycleManager @Inject constructor(
@@ -39,34 +96,60 @@ public class AppLifecycleManager @Inject constructor(
     private val updateChecker: UpdateChecker,
     private val appState: AppState
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /**
+     * Coroutine scope with exception handling for lifecycle operations.
+     * Uses SupervisorJob to prevent child failures from cancelling the scope.
+     */
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        if (throwable !is CancellationException) {
+            Log.e(TAG, "Uncaught exception in lifecycle scope", throwable)
+        }
+    }
 
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate + exceptionHandler
+    )
+
+    /**
+     * Current startup state. Reactive property for UI observation.
+     */
     private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Splash)
-    val startupState: StateFlow<AppStartupState> = _startupState.asStateFlow()
+    public val startupState: StateFlow<AppStartupState> = _startupState.asStateFlow()
 
+    /**
+     * Cold start completion flag. True once the initial startup sequence finishes.
+     */
     private val _isColdStartComplete = MutableStateFlow(false)
-    val isColdStartComplete: StateFlow<Boolean> = _isColdStartComplete.asStateFlow()
+    public val isColdStartComplete: StateFlow<Boolean> = _isColdStartComplete.asStateFlow()
 
+    /**
+     * Last startup error for debugging. Cleared on retry.
+     */
     private var lastStartupError: Throwable? = null
 
-    companion object {
+    public companion object {
         private const val TAG = "AppLifecycleManager"
     }
 
     /**
-     * Initialize the cold start sequence.
-     * Call this from MainActivity or Application.
+     * Initializes the cold start sequence.
+     *
+     * Call this from MainActivity or Application onCreate.
+     * Launches a new coroutine to perform the async startup sequence.
      */
-    fun initialize() {
+    public fun initialize() {
         scope.launch {
             performColdStart()
         }
     }
 
     /**
-     * Retry the cold start sequence after a failure.
+     * Retries the cold start sequence after a failure.
+     *
+     * Resets error state and re-runs the entire startup sequence.
+     * Useful when the user taps a "Retry" button on error screens.
      */
-    fun retry() {
+    public fun retry() {
         scope.launch {
             Log.i(TAG, "Retrying cold start sequence")
             lastStartupError = null
@@ -75,29 +158,43 @@ public class AppLifecycleManager @Inject constructor(
         }
     }
 
+    /**
+     * Performs the complete cold start sequence with error recovery.
+     *
+     * Implements a multi-step startup process with fallback strategies:
+     * 1. Fetch Remote Config
+     * 2. Check Maintenance Mode
+     * 3. Check Force Update
+     * 4. Initialize Analytics
+     * 5. Transition to Ready
+     *
+     * Error recovery matches iOS behavior for platform parity.
+     */
     private suspend fun performColdStart() {
         Log.i(TAG, "🚀 Starting cold start sequence")
         val startTime = System.currentTimeMillis()
-        val isFirstLaunch = !appState.isFirstLaunchComplete
+        val isFirstLaunch = !appState.isFirstLaunchComplete()
 
         try {
             // Step 1: Load Remote Config
             _startupState.value = AppStartupState.Loading(0.3f, "Loading configuration...")
             remoteConfigRepository.fetchAndActivate()
-            
+
             // Sync to AppState (persists values)
             appState.syncFromRemoteConfig(remoteConfigRepository)
+                .onFailure { Log.e(TAG, "Failed to sync Remote Config", it) }
             Log.i(TAG, "✅ Remote config loaded and synced to AppState")
 
             // Mark first launch complete
             if (isFirstLaunch) {
                 appState.markFirstLaunchComplete()
+                    .onFailure { Log.e(TAG, "Failed to mark first launch complete", it) }
             }
 
             // Step 2: Check for maintenance mode (highest priority)
             if (appState.isMaintenanceMode.first()) {
                 Log.w(TAG, "🔧 Maintenance mode enabled")
-                val localizedMessage = appState.getLocalizedMaintenanceMessage()
+                val localizedMessage = appState.getLocalizedMaintenanceMessage().getOrElse { "" }
                 _startupState.value = AppStartupState.Maintenance(localizedMessage)
                 return // Block here until maintenance ends
             }
@@ -127,25 +224,27 @@ public class AppLifecycleManager @Inject constructor(
             _isColdStartComplete.value = true
             Log.i(TAG, "✅ Cold start complete in ${System.currentTimeMillis() - startTime}ms")
 
+        } catch (e: CancellationException) {
+            Log.w(TAG, "Cold start cancelled")
+            throw e // Rethrow to respect structured concurrency
         } catch (e: Exception) {
             Log.e(TAG, "❌ Cold start failed", e)
             lastStartupError = e
 
             // First launch + no network → use defaults (matches iOS behavior)
-            if (isFirstLaunch && !appState.hasCachedRemoteConfig) {
+            if (isFirstLaunch && !appState.hasCachedRemoteConfig()) {
                 Log.i(TAG, "📱 First launch with no network, using defaults")
                 appState.markFirstLaunchComplete()
+                    .onFailure { Log.e(TAG, "Failed to mark first launch complete", it) }
                 proceedWithDefaults(startTime)
                 return
             }
 
             // Valid cache exists → use it (matches iOS behavior)
-            scope.launch {
-                if (appState.isCacheValid) {
-                    Log.i(TAG, "✅ Using valid cached config")
-                    proceedWithCachedValues(startTime)
-                    return@launch
-                }
+            if (appState.isCacheValid()) {
+                Log.i(TAG, "✅ Using valid cached config")
+                proceedWithCachedValues(startTime)
+                return
             }
 
             // Expired cache + network fail → show error
@@ -157,6 +256,14 @@ public class AppLifecycleManager @Inject constructor(
         }
     }
 
+    /**
+     * Proceeds with default values when Remote Config is unavailable.
+     *
+     * Used on first launch with no network connectivity.
+     * Skips maintenance and force update checks.
+     *
+     * @param startTime Cold start start timestamp for duration calculation
+     */
     private suspend fun proceedWithDefaults(startTime: Long) {
         // Skip maintenance/forceUpdate checks when using defaults
         initializeAnalytics()
@@ -169,10 +276,18 @@ public class AppLifecycleManager @Inject constructor(
         Log.i(TAG, "✅ Cold start complete (defaults) in ${System.currentTimeMillis() - startTime}ms")
     }
 
+    /**
+     * Proceeds with cached Remote Config values.
+     *
+     * Used when Remote Config fetch fails but valid cache exists.
+     * Performs maintenance and force update checks using cached data.
+     *
+     * @param startTime Cold start start timestamp for duration calculation
+     */
     private suspend fun proceedWithCachedValues(startTime: Long) {
         // Check maintenance mode
         if (appState.isMaintenanceMode.first()) {
-            val localizedMessage = appState.getLocalizedMaintenanceMessage()
+            val localizedMessage = appState.getLocalizedMaintenanceMessage().getOrElse { "" }
             _startupState.value = AppStartupState.Maintenance(localizedMessage)
             return
         }
@@ -194,7 +309,12 @@ public class AppLifecycleManager @Inject constructor(
     }
 
     /**
-     * Check if force update is required using AppState (cached values).
+     * Checks if force update is required using AppState cached values.
+     *
+     * Compares current app version with minimum required version from Remote Config.
+     * Delegates version comparison logic to UpdateChecker.
+     *
+     * @return ForceUpdate state if update required, null otherwise
      */
     private suspend fun checkForceUpdate(): AppStartupState.ForceUpdate? {
         val minimumVersion = appState.forceUpdateMinimumVersion.first()
@@ -211,16 +331,28 @@ public class AppLifecycleManager @Inject constructor(
         return null
     }
 
+    /**
+     * Initializes analytics SDK.
+     *
+     * TODO: Implement analytics initialization (e.g., Firebase Analytics, Amplitude)
+     */
     private fun initializeAnalytics() {
         Log.d(TAG, "Initializing Analytics...")
         // TODO: Configure analytics SDK
     }
 
     /**
-     * Handle app moving to foreground.
-     * Checks cache validity and re-fetches if expired (matches iOS behavior).
+     * Handles app moving to foreground.
+     *
+     * Checks Remote Config cache validity and re-fetches if expired.
+     * Matches iOS behavior for platform parity.
+     *
+     * ## Behavior
+     * - **Valid Cache**: Check maintenance/force update using cached values
+     * - **Expired Cache**: Re-fetch Remote Config, show splash screen
+     * - **Not Ready**: Ignores (cold start still in progress)
      */
-    fun onForeground() {
+    public fun onForeground() {
         Log.d(TAG, "App moved to foreground")
         appState.setInForeground(true)
 
@@ -229,7 +361,7 @@ public class AppLifecycleManager @Inject constructor(
 
         // Check cache validity and state in coroutine
         scope.launch {
-            if (appState.isCacheValid) {
+            if (appState.isCacheValid()) {
                 // Cache is valid - just check current values using cached data
                 Log.d(TAG, "✅ Cache is valid, checking current state")
                 checkCurrentStateFromCache()
@@ -243,13 +375,18 @@ public class AppLifecycleManager @Inject constructor(
     }
 
     /**
-     * Check current state using cached values (for foreground return with valid cache)
+     * Checks current state using cached values.
+     *
+     * Called on foreground return when cache is still valid.
+     * Detects new maintenance mode or force update requirements.
+     *
+     * Only transitions to blocking states (Maintenance, ForceUpdate) if not already in them.
      */
     private suspend fun checkCurrentStateFromCache() {
         // Check Maintenance Mode
         if (appState.isMaintenanceMode.first() && _startupState.value !is AppStartupState.Maintenance) {
             Log.w(TAG, "🔧 Maintenance mode detected on foreground")
-            val localizedMessage = appState.getLocalizedMaintenanceMessage()
+            val localizedMessage = appState.getLocalizedMaintenanceMessage().getOrElse { "" }
             _startupState.value = AppStartupState.Maintenance(localizedMessage)
             return
         }
@@ -263,10 +400,23 @@ public class AppLifecycleManager @Inject constructor(
     }
 
     /**
-     * Handle app moving to background.
+     * Handles app moving to background.
+     *
+     * Updates AppState flag for background processing logic.
      */
-    fun onBackground() {
+    public fun onBackground() {
         Log.d(TAG, "App moved to background")
         appState.setInForeground(false)
+    }
+
+    /**
+     * Cancels all running coroutines in the lifecycle scope.
+     *
+     * Call this when the app is permanently shutting down.
+     * Not typically needed in Android apps (process kills handle cleanup).
+     */
+    public fun shutdown() {
+        Log.i(TAG, "Shutting down lifecycle manager")
+        scope.coroutineContext.cancelChildren()
     }
 }

@@ -6,9 +6,6 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfigSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import java.net.HttpURLConnection
-import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 import {{ cookiecutter.base_package }}.core.data.BuildConfig
@@ -17,25 +14,30 @@ import kotlin.coroutines.resumeWithException
 
 /**
  * Firebase Remote Config implementation.
- * Android equivalent of iOS FirebaseRemoteConfigAdapter.
- *
- * Features:
- * - Firebase Remote Config fetch with timeout
- * - Graceful fallback to default values
- * - Network diagnostics for debugging
- *
- * Note: Caching is handled by AppState singleton for centralized state management.
+ * 
+ * Production-ready implementation with:
+ * - **Timeout handling**: 60-second fetch timeout
+ * - **Smart caching**: Debug (0s) vs Release (1h) intervals
+ * - **Error recovery**: Graceful fallback to defaults
+ * - **Result-based API**: Type-safe error handling
+ * 
+ * ## Configuration
+ * - Debug: Instant fetch for rapid development
+ * - Release: 1-hour cache for production efficiency
+ * 
+ * @see RemoteConfigRepository
+ * @see LocalRemoteConfigRepository
  */
 @Singleton
 public class FirebaseRemoteConfigRepository @Inject constructor() : RemoteConfigRepository {
 
     private val remoteConfig: FirebaseRemoteConfig = FirebaseRemoteConfig.getInstance()
 
-    companion object {
+    private companion object {
         private const val TAG = "FirebaseRemoteConfig"
         private const val FETCH_TIMEOUT_SECONDS = 60L
         private const val MINIMUM_FETCH_INTERVAL_DEBUG = 0L
-        private const val MINIMUM_FETCH_INTERVAL_RELEASE = 3600L
+        private const val MINIMUM_FETCH_INTERVAL_RELEASE = 3600L // 1 hour
     }
 
     init {
@@ -53,90 +55,72 @@ public class FirebaseRemoteConfigRepository @Inject constructor() : RemoteConfig
         remoteConfig.setConfigSettingsAsync(configSettings)
         remoteConfig.setDefaultsAsync(RemoteConfigDefaults.defaults)
 
-        Log.d(TAG, "FirebaseRemoteConfig initialized with ${RemoteConfigDefaults.defaults.size} defaults")
+        Log.d(TAG, "Firebase Remote Config initialized (debug=${BuildConfig.DEBUG}, interval=${if (BuildConfig.DEBUG) 0 else 3600}s)")
     }
 
-    override suspend fun fetchAndActivate() {
-        try {
-            withTimeout(FETCH_TIMEOUT_SECONDS * 1000) {
-                suspendCancellableCoroutine<Unit> { continuation ->
-                    val startTime = System.currentTimeMillis()
-
-                    remoteConfig.fetchAndActivate()
-                        .addOnSuccessListener { activated: Boolean ->
-                            val elapsed = System.currentTimeMillis() - startTime
-                            Log.i(TAG, buildString {
-                                append("✅ Remote Config fetch completed in ${elapsed}ms\n")
-                                append("- Activated: $activated\n")
-                                append("- Keys: ${remoteConfig.all.keys.sorted().joinToString(", ")}")
-                            })
-                            continuation.resume(Unit)
-                        }
-                        .addOnFailureListener { exception: Exception ->
-                            val elapsed = System.currentTimeMillis() - startTime
-                            Log.e(TAG, "❌ Remote Config fetch failed after ${elapsed}ms", exception)
-                            continuation.resumeWithException(
-                                RemoteConfigException("Fetch failed: ${exception.message}", exception)
-                            )
-                        }
-                }
+    override suspend fun fetchAndActivate(): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            Log.d(TAG, "🔄 Fetching remote config...")
+            
+            val success = suspendCancellableCoroutine { continuation ->
+                remoteConfig.fetchAndActivate()
+                    .addOnSuccessListener { activated ->
+                        Log.d(TAG, "✅ Fetch complete (activated=$activated)")
+                        continuation.resume(activated)
+                    }
+                    .addOnFailureListener { error ->
+                        Log.e(TAG, "❌ Fetch failed: ${error.message}", error)
+                        continuation.resumeWithException(error)
+                    }
+                    .addOnCanceledListener {
+                        Log.w(TAG, "⚠️ Fetch canceled")
+                        continuation.resumeWithException(
+                            Exception("Remote config fetch canceled")
+                        )
+                    }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Remote Config fetch failed, using default values", e)
-            diagnoseConnectivity()
+            
+            Unit // Return Unit on success
+        }.recoverCatching { error ->
+            // Convert to RemoteConfigError
+            throw when {
+                error.message?.contains("network", ignoreCase = true) == true ->
+                    RemoteConfigError.NetworkError(error)
+                else -> RemoteConfigError.General("Fetch failed", error)
+            }
         }
     }
 
+    override suspend fun getString(key: RemoteConfigKey): Result<String> = runCatching {
+        remoteConfig.getString(key.key)
+    }
+
+    override suspend fun getBoolean(key: RemoteConfigKey): Result<Boolean> = runCatching {
+        remoteConfig.getBoolean(key.key)
+    }
+
+    override suspend fun getLong(key: RemoteConfigKey): Result<Long> = runCatching {
+        remoteConfig.getLong(key.key)
+    }
+
+    override suspend fun getDouble(key: RemoteConfigKey): Result<Double> = runCatching {
+        remoteConfig.getDouble(key.key)
+    }
+
+    // Legacy synchronous methods for backward compatibility
     override fun getString(key: String): String {
-        return remoteConfig.getString(key).also { value ->
-            Log.v(TAG, "getString($key) = $value")
-        }
+        return remoteConfig.getString(key)
     }
 
     override fun getBoolean(key: String): Boolean {
-        return remoteConfig.getBoolean(key).also { value ->
-            Log.v(TAG, "getBoolean($key) = $value")
-        }
+        return remoteConfig.getBoolean(key)
     }
 
     override fun getLong(key: String): Long {
-        return remoteConfig.getLong(key).also { value ->
-            Log.v(TAG, "getLong($key) = $value")
-        }
+        return remoteConfig.getLong(key)
     }
 
     override fun getDouble(key: String): Double {
-        return remoteConfig.getDouble(key).also { value ->
-            Log.v(TAG, "getDouble($key) = $value")
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // Network Diagnostics
-    // ══════════════════════════════════════════════════════════════
-
-    private suspend fun diagnoseConnectivity() {
-        Log.i(TAG, "🌐 Running network diagnostics...")
-        withContext(Dispatchers.IO) {
-            probeEndpoint("https://firebaseremoteconfig.googleapis.com/", "RemoteConfig")
-            probeEndpoint("https://firebaseinstallations.googleapis.com/", "Installations")
-        }
-    }
-
-    private fun probeEndpoint(urlString: String, label: String) {
-        try {
-            val url = URL(urlString)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "HEAD"
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-
-            val responseCode = connection.responseCode
-            connection.disconnect()
-
-            Log.i(TAG, "🌐 $label endpoint reachable: status=$responseCode")
-        } catch (e: Exception) {
-            Log.e(TAG, "🌐 $label endpoint check failed: ${e.message}")
-        }
+        return remoteConfig.getDouble(key)
     }
 }

@@ -10,47 +10,183 @@ import {{ cookiecutter.base_package }}.lifecycle.AppLifecycleManager
 import javax.inject.Inject
 
 /**
- * Application class for {{ cookiecutter.project_name }}.
- * Configures Hilt DI, Firebase, and app-wide initialization.
+ * Application class for {{ cookiecutter.project_name }} with Hilt DI and lifecycle management.
+ *
+ * Serves as the entry point for application-wide initialization including
+ * dependency injection, Firebase configuration, and lifecycle orchestration.
+ *
+ * ## Responsibilities
+ * - **Dependency Injection**: Configures Hilt DI container with @HiltAndroidApp
+ * - **Lifecycle Management**: Initializes AppLifecycleManager for cold start
+ * - **Firebase**: Initializes Firebase SDK (if enabled)
+ * - **Global Configuration**: Sets up app-wide services and libraries
+ *
+ * ## Architecture Patterns
+ * - **Hilt DI**: Provides compile-time dependency injection
+ * - **Lazy Initialization**: Defers heavy work until first access
+ * - **Error Recovery**: Gracefully handles initialization failures
+ *
+ * ## Initialization Order
+ * 1. Hilt dependency graph construction
+ * 2. AppLifecycleManager injection
+ * 3. Cold start sequence initiation
+ * 4. Firebase initialization (optional)
+ * 5. Debug logging setup
+ *
+ * ## Usage
+ * This class is automatically instantiated by Android system.
+ * No manual creation needed. Declare in AndroidManifest.xml:
+ * ```xml
+ * <application
+ *     android:name=".MainApplication"
+ *     ...>
+ * </application>
+ * ```
+ *
+ * ## Extension Points
+ * Override `onCreate()` to add custom initialization:
+ * ```kotlin
+ * override fun onCreate() {
+ *     super.onCreate()
+ *     // Custom initialization here
+ *     initializeCrashlytics()
+ *     configureTimber()
+ * }
+ * ```
+ *
+ * @see AppLifecycleManager
+ * @see HiltAndroidApp
  */
 @HiltAndroidApp
 public class MainApplication : Application() {
+
+    /**
+     * Application lifecycle orchestrator.
+     * Injected by Hilt to manage cold start and app state transitions.
+     */
     @Inject
     public lateinit var appLifecycleManager: AppLifecycleManager
 
-    companion object {
-        private const val TAG = "TmaApplication"
+    public companion object {
+        private const val TAG = "MainApplication"
     }
 
+    /**
+     * Application creation and initialization.
+     *
+     * Called when the application is starting, before any activity, service,
+     * or receiver objects (excluding content providers) have been created.
+     *
+     * ## Initialization Sequence
+     * 1. Call super.onCreate() for system initialization
+     * 2. Initialize AppLifecycleManager for cold start
+     * 3. Configure debug logging
+     * 4. Initialize Firebase (if enabled)
+     * 5. Log successful initialization
+     *
+     * ## Performance Considerations
+     * - Keep initialization minimal to avoid slow app startup
+     * - Defer heavy work to background threads or lazy initialization
+     * - Use WorkManager for non-critical startup tasks
+     *
+     * ## Error Handling
+     * - Firebase init failures are logged but don't crash the app
+     * - Critical initialization errors should be caught and reported
+     */
     override fun onCreate() {
         super.onCreate()
-        appLifecycleManager.initialize()
 
-        // Initialize logging
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "🚀 {{ cookiecutter.project_name }} initializing in DEBUG mode")
+        try {
+            // Initialize cold start sequence
+            // This triggers Remote Config fetch, maintenance checks, etc.
+            appLifecycleManager.initialize()
+
+            // Configure debug logging
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🚀 {{ cookiecutter.project_name }} initializing in DEBUG mode")
+                Log.d(TAG, "Package: ${BuildConfig.APPLICATION_ID}")
+                Log.d(TAG, "Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            }
+
+            {% if cookiecutter.use_firebase == 'yes' -%}
+            // Initialize Firebase
+            initializeFirebase()
+            {% endif -%}
+
+            Log.i(TAG, "✅ {{ cookiecutter.project_name }} initialized successfully")
+
+        } catch (e: Exception) {
+            // Critical initialization failure
+            Log.e(TAG, "❌ Application initialization failed", e)
+            // Consider showing error screen or using fallback mode
+            // DO NOT crash the app - allow graceful degradation
         }
-
-        {% if cookiecutter.use_firebase == 'yes' -%}
-        // Initialize Firebase
-        initializeFirebase()
-        {% endif -%}
-
-        Log.i(TAG, "✅ {{ cookiecutter.project_name }} initialized successfully")
     }
 
     {% if cookiecutter.use_firebase == 'yes' -%}
+    /**
+     * Initializes Firebase SDK with error recovery.
+     *
+     * Checks if Firebase is already initialized to avoid redundant setup.
+     * Gracefully handles initialization failures to prevent app crashes.
+     *
+     * ## Firebase Services
+     * - Firebase Remote Config
+     * - Firebase Analytics
+     * - Firebase Crashlytics
+     * - Firebase Cloud Messaging (if configured)
+     *
+     * ## Error Scenarios
+     * - Missing google-services.json: Logs warning, app continues
+     * - Invalid configuration: Logs error, app continues with degraded features
+     * - Network unavailable: Firebase SDK handles internally
+     *
+     * ## Testing
+     * For unit tests, Firebase is automatically mocked by Hilt test modules.
+     * For instrumented tests, use Firebase Test Lab or emulator with proper config.
+     */
     private fun initializeFirebase() {
         try {
+            // Check if Firebase is already initialized (e.g., by ContentProvider)
             if (FirebaseApp.getApps(this).isEmpty()) {
                 FirebaseApp.initializeApp(this)
-                Log.d(TAG, "Firebase initialized")
+                Log.d(TAG, "✅ Firebase initialized")
+
+                // Log Firebase project info in debug mode
+                if (BuildConfig.DEBUG) {
+                    FirebaseApp.getInstance().options.let { options ->
+                        Log.d(TAG, "Firebase Project ID: ${options.projectId}")
+                        Log.d(TAG, "Firebase App ID: ${options.applicationId}")
+                    }
+                }
             } else {
                 Log.d(TAG, "Firebase already initialized")
             }
+        } catch (e: IllegalStateException) {
+            // Firebase configuration error (missing google-services.json)
+            Log.w(TAG, "Firebase initialization failed: ${e.message}")
+            Log.w(TAG, "App will continue without Firebase features")
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase initialization skipped: ${e.message}")
+            // Unexpected Firebase initialization error
+            Log.e(TAG, "Unexpected Firebase error", e)
+            // App continues - Firebase features will be unavailable
         }
     }
     {% endif -%}
+
+    /**
+     * Called when the application is stopping.
+     *
+     * Not guaranteed to be called on all Android versions.
+     * Use this for cleanup only if absolutely necessary.
+     *
+     * For proper lifecycle cleanup, use:
+     * - ProcessLifecycleOwner for app-level lifecycle events
+     * - ViewModel.onCleared() for component cleanup
+     * - Activity/Fragment lifecycle methods for UI cleanup
+     */
+    override fun onTerminate() {
+        super.onTerminate()
+        Log.d(TAG, "Application terminating")
+    }
 }

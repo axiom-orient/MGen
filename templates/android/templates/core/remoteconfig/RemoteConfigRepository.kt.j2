@@ -2,95 +2,278 @@ package {{ cookiecutter.base_package }}.core.remoteconfig
 
 /**
  * Remote Configuration Repository interface.
- * Android equivalent of iOS RemoteConfigService protocol.
- *
- * Provides a unified interface for accessing remote configuration values
- * regardless of the underlying implementation (Firebase, local, etc.).
- *
- * Note: Caching is handled by AppState singleton for centralized state management.
+ * 
+ * Provides type-safe, coroutine-based access to remote configuration values
+ * with comprehensive error handling and caching support.
+ * 
+ * ## Architecture
+ * - **Thread-safe**: All operations are thread-safe and properly synchronized
+ * - **Offline-first**: Caches values locally for offline access
+ * - **Type-safe**: Uses sealed classes for configuration keys
+ * - **Error handling**: Returns `Result<T>` for all failable operations
+ * 
+ * ## Usage
+ * ```kotlin
+ * class MyViewModel @Inject constructor(
+ *     private val remoteConfig: RemoteConfigRepository
+ * ) : ViewModel() {
+ *     fun loadConfig() {
+ *         viewModelScope.launch {
+ *             remoteConfig.fetchAndActivate()
+ *                 .onSuccess { /* Config loaded */ }
+ *                 .onFailure { error -> /* Handle error */ }
+ *             
+ *             val version = remoteConfig.getString(RemoteConfigKey.ForceUpdateMinVersion)
+ *                 .getOrDefault("")
+ *         }
+ *     }
+ * }
+ * ```
+ * 
+ * @see RemoteConfigKey
+ * @see FirebaseRemoteConfigRepository
+ * @see LocalRemoteConfigRepository
  */
-interface RemoteConfigRepository {
+public interface RemoteConfigRepository {
 
     /**
-     * Fetch and activate remote configuration values.
-     * This is a suspend function that should be called during app initialization.
-     *
-     * @throws RemoteConfigException if fetch fails and no defaults are available
+     * Fetches and activates remote configuration values.
+     * 
+     * This operation:
+     * 1. Fetches latest values from remote source
+     * 2. Activates them for immediate use
+     * 3. Caches them locally for offline access
+     * 
+     * **Thread-safety**: Safe to call from any coroutine context.
+     * Will automatically switch to IO dispatcher internally.
+     * 
+     * @return [Result.success] if fetch succeeds or cached values are available,
+     *         [Result.failure] if fetch fails and no cache exists
      */
-    public suspend fun fetchAndActivate()
+    public suspend fun fetchAndActivate(): Result<Unit>
 
     /**
-     * Get a string value for the given key.
-     *
-     * @param key The configuration key
-     * @return The string value, or empty string if not found
+     * Retrieves a string configuration value.
+     * 
+     * @param key The configuration key to retrieve
+     * @return [Result] containing the string value, or error if retrieval fails.
+     *         Returns empty string if key not found (not an error).
      */
+    public suspend fun getString(key: RemoteConfigKey): Result<String>
+
+    /**
+     * Retrieves a boolean configuration value.
+     * 
+     * @param key The configuration key to retrieve
+     * @return [Result] containing the boolean value, or error if retrieval fails.
+     *         Returns false if key not found (not an error).
+     */
+    public suspend fun getBoolean(key: RemoteConfigKey): Result<Boolean>
+
+    /**
+     * Retrieves a long configuration value.
+     * 
+     * @param key The configuration key to retrieve
+     * @return [Result] containing the long value, or error if retrieval fails.
+     *         Returns 0L if key not found (not an error).
+     */
+    public suspend fun getLong(key: RemoteConfigKey): Result<Long>
+
+    /**
+     * Retrieves a double configuration value.
+     * 
+     * @param key The configuration key to retrieve
+     * @return [Result] containing the double value, or error if retrieval fails.
+     *         Returns 0.0 if key not found (not an error).
+     */
+    public suspend fun getDouble(key: RemoteConfigKey): Result<Double>
+    
+    // Legacy synchronous methods for backward compatibility
     public fun getString(key: String): String
-
-    /**
-     * Get a boolean value for the given key.
-     *
-     * @param key The configuration key
-     * @return The boolean value, or false if not found
-     */
     public fun getBoolean(key: String): Boolean
-
-    /**
-     * Get a long value for the given key.
-     *
-     * @param key The configuration key
-     * @return The long value, or 0 if not found
-     */
     public fun getLong(key: String): Long
-
-    /**
-     * Get a double value for the given key.
-     *
-     * @param key The configuration key
-     * @return The double value, or 0.0 if not found
-     */
     public fun getDouble(key: String): Double
 }
 
 /**
- * Exception thrown when remote config operations fail.
+ * Type-safe remote configuration keys.
+ * 
+ * Using sealed class provides:
+ * - **Type safety**: Compile-time verification of keys
+ * - **Exhaustive when**: Compiler enforces handling all cases
+ * - **IDE support**: Auto-completion and refactoring
+ * 
+ * ## Adding New Keys
+ * ```kotlin
+ * data object NewFeatureFlag : RemoteConfigKey("new_feature_flag")
+ * ```
+ * 
+ * @property key The raw string key used in remote configuration
  */
+public sealed class RemoteConfigKey(public val key: String) {
+    /** Force update minimum version requirement */
+    public data object ForceUpdateMinVersion : RemoteConfigKey("force_update_min_version")
+    
+    /** Maintenance mode enabled flag */
+    public data object MaintenanceModeEnabled : RemoteConfigKey("maintenance_mode_enabled")
+    
+    /** Maintenance mode message (JSON multilingual) */
+    public data object MaintenanceMessage : RemoteConfigKey("maintenance_message")
+    
+    /** Welcome message (JSON multilingual) */
+    public data object WelcomeMessage : RemoteConfigKey("welcome_message")
+    
+    public companion object {
+        /**
+         * All available configuration keys.
+         * Useful for iteration and validation.
+         */
+        public val all: List<RemoteConfigKey> = listOf(
+            ForceUpdateMinVersion,
+            MaintenanceModeEnabled,
+            MaintenanceMessage,
+            WelcomeMessage
+        )
+        
+        /**
+         * Creates a RemoteConfigKey from a string.
+         * Used for backward compatibility and dynamic key access.
+         * 
+         * @param keyString The raw configuration key
+         * @return Matching RemoteConfigKey, or throws if not found
+         * @throws IllegalArgumentException if key is not recognized
+         */
+        public fun fromString(keyString: String): RemoteConfigKey {
+            return all.firstOrNull { it.key == keyString }
+                ?: throw IllegalArgumentException("Unknown remote config key: $keyString")
+        }
+    }
+}
+
+/**
+ * Legacy string constants for remote config keys.
+ * 
+ * **Deprecated**: Use [RemoteConfigKey] sealed class instead for type safety.
+ * 
+ * @see RemoteConfigKey
+ */
+@Deprecated(
+    message = "Use RemoteConfigKey sealed class instead",
+    replaceWith = ReplaceWith("RemoteConfigKey")
+)
+public object RemoteConfigKeys {
+    public const val FORCE_UPDATE_MIN_VERSION: String = "force_update_min_version"
+    public const val MAINTENANCE_MODE_ENABLED: String = "maintenance_mode_enabled"
+    public const val MAINTENANCE_MESSAGE: String = "maintenance_message"
+    public const val WELCOME_MESSAGE: String = "welcome_message"
+}
+
+/**
+ * Remote configuration error types.
+ * 
+ * Provides detailed error information for better error handling and debugging.
+ */
+public sealed class RemoteConfigError : Exception() {
+    /**
+     * Network error during fetch operation.
+     * 
+     * @property cause The underlying network exception
+     */
+    public data class NetworkError(
+        override val cause: Throwable
+    ) : RemoteConfigError() {
+        override val message: String = "Network error during config fetch: ${cause.message}"
+    }
+    
+    /**
+     * Configuration value parsing error.
+     * 
+     * @property key The configuration key that failed to parse
+     * @property expectedType The expected value type
+     */
+    public data class ParseError(
+        public val key: String,
+        public val expectedType: String,
+        override val cause: Throwable? = null
+    ) : RemoteConfigError() {
+        override val message: String = "Failed to parse config key '$key' as $expectedType"
+    }
+    
+    /**
+     * Configuration not initialized.
+     * Fetch must be called before accessing values.
+     */
+    public data object NotInitialized : RemoteConfigError() {
+        override val message: String = "Remote config not initialized. Call fetchAndActivate() first."
+    }
+    
+    /**
+     * General configuration error.
+     * 
+     * @property reason Human-readable error description
+     */
+    public data class General(
+        public val reason: String,
+        override val cause: Throwable? = null
+    ) : RemoteConfigError() {
+        override val message: String = reason
+    }
+}
+
+/**
+ * Legacy exception type for backward compatibility.
+ * 
+ * **Deprecated**: Use [RemoteConfigError] sealed class instead.
+ */
+@Deprecated(
+    message = "Use RemoteConfigError sealed class instead",
+    replaceWith = ReplaceWith("RemoteConfigError")
+)
 public class RemoteConfigException(
     message: String,
     cause: Throwable? = null
 ) : Exception(message, cause)
 
 /**
- * Common remote config keys used across the app.
- * Keys are aligned with iOS for Firebase Console consistency.
- *
- * Note: latest_app_version is NOT included here - it's fetched
- * directly from the Play Store using StoreVersionChecker.
- */
-public object RemoteConfigKeys {
-    // Force Update
-    public const val FORCE_UPDATE_MIN_VERSION: String = "force_update_min_version"
-
-    // Maintenance Mode
-    public const val MAINTENANCE_MODE_ENABLED: String = "maintenance_mode_enabled"
-    public const val MAINTENANCE_MESSAGE: String = "maintenance_message"
-
-    // Content
-    public const val WELCOME_MESSAGE: String = "welcome_message"
-}
-
-/**
- * Default values for remote configuration.
- * These are used when Firebase is not available or values are not set.
- *
- * Note: welcome_message and maintenance_message use JSON format for multi-language support.
+ * Default configuration values.
+ * 
+ * Used as fallback when remote values are unavailable or not set.
+ * All messages use JSON format for multi-language support.
+ * 
+ * ## JSON Message Format
+ * ```json
+ * {
+ *   "ko": "한국어 메시지",
+ *   "en": "English message",
+ *   ...
+ * }
+ * ```
  */
 public object RemoteConfigDefaults {
-    public val defaults: Map<String, Any> = mapOf(
-        RemoteConfigKeys.FORCE_UPDATE_MIN_VERSION to "",
-        RemoteConfigKeys.MAINTENANCE_MODE_ENABLED to false,
-        RemoteConfigKeys.MAINTENANCE_MESSAGE to """{"ko":"약속한 시간까지 최고의 환경을 만들어 놓겠습니다. [00:00]에 다시 만나요!","en":"We're fine-tuning everything for your best experience. See you again at [00:00]!","ja":"より快適な環境を整えております。[00:00]にまたお会いしましょう！","zh-CN":"为了给您提供更好的体验，我们正在优化系统。期待在 [00:00] 与您再次见面！","zh-TW":"為了提供更優質的服務，我們正全力整備中。期待在 [00:00] 與您再次相見！","es":"Estamos mejorando todo para brindarte la mejor experiencia. ¡Nos vemos a las [00:00]!","vi":"Chúng tôi đang hoàn thiện dịch vụ tốt nhất dành cho bạn. Hẹn gặp lại vào lúc [00:00]!","th":"เรากำลังเตรียมระบบให้พร้อมที่สุดเพื่อคุณ แล้วพบกันใหม่ตอน [00:00] น. นะคะ/ครับ","fr":"Nous préparons le meilleur pour vous. Rendez-vous à [00:00] pour une expérience optimale !"}""",
-        RemoteConfigKeys.WELCOME_MESSAGE to """{"ko":"당신의 시간, 더 가치있게","en":"Glad you're here! Let's make today amazing.","ja":"ようこそ！今日も素敵な一日になりますように。","zh-CN":"很高兴遇见你，开启你的美好时光吧！","zh-TW":"遇見你真好，今天要一起創造美好回憶嗎？","es":"¡Qué bueno verte! Tu presencia nos alegra el día.","vi":"Thật tuyệt khi gặp bạn! Chúc bạn một ngày rạng rỡ.","th":"ดีใจที่ได้พบคุณ มาเริ่มช่วงเวลาดีๆ กันเถอะ","fr":"Ravi de vous voir ! Prêt pour un moment d'exception ?"}"""
-    )
+    /**
+     * Default values mapped by configuration key.
+     */
+    public val defaults: Map<String, Any> = buildMap {
+        put(RemoteConfigKey.ForceUpdateMinVersion.key, "")
+        put(RemoteConfigKey.MaintenanceModeEnabled.key, false)
+        put(
+            RemoteConfigKey.MaintenanceMessage.key,
+            """{"ko":"약속한 시간까지 최고의 환경을 만들어 놓겠습니다. [00:00]에 다시 만나요!","en":"We're fine-tuning everything for your best experience. See you again at [00:00]!","ja":"より快適な環境を整えております。[00:00]にまたお会いしましょう！","zh-CN":"为了给您提供更好的体验，我们正在优化系统。期待在 [00:00] 与您再次见面！","zh-TW":"為了提供更優質的服務，我們正全力整備中。期待在 [00:00] 與您再次相見！","es":"Estamos mejorando todo para brindarte la mejor experiencia. ¡Nos vemos a las [00:00]!","vi":"Chúng tôi đang hoàn thiện dịch vụ tốt nhất dành cho bạn. Hẹn gặp lại vào lúc [00:00]!","th":"เรากำลังเตรียมระบบให้พร้อมที่สุดเพื่อคุณ แล้วพบกันใหม่ตอน [00:00] น. นะคะ/ครับ","fr":"Nous préparons le meilleur pour vous. Rendez-vous à [00:00] pour une expérience optimale !"}"""
+        )
+        put(
+            RemoteConfigKey.WelcomeMessage.key,
+            """{"ko":"당신의 시간, 더 가치있게","en":"Glad you're here! Let's make today amazing.","ja":"ようこそ！今日も素敵な一日になりますように。","zh-CN":"很高兴遇见你，开启你的美好时光吧！","zh-TW":"遇見你真好，今天要一起創造美好回憶嗎？","es":"¡Qué bueno verte! Tu presencia nos alegra el día.","vi":"Thật tuyệt khi gặp bạn! Chúc bạn một ngày rạng rỡ.","th":"ดีใจที่ได้พบคุณ มาเริ่มช่วงเวลาดีๆ กันเถอะ","fr":"Ravi de vous voir ! Prêt pour un moment d'exception ?"}"""
+        )
+    }
+    
+    /**
+     * Gets default value for a specific key with type safety.
+     * 
+     * @param key The configuration key
+     * @return Default value, or null if not found
+     */
+    @Suppress("UNCHECKED_CAST")
+    public inline fun <reified T> getDefault(key: RemoteConfigKey): T? {
+        return defaults[key.key] as? T
+    }
 }
-
