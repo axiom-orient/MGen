@@ -17,7 +17,8 @@ use tokio::net::TcpListener;
 
 use handlers::{
     check_status, dashboard, delete_task, download_platform, download_project, generate, health,
-    push_to_github, show_form, sync_folders, task_card, task_detail, tasks_list, verify_build,
+    push_to_github, select_folder, show_form, sync_folders, task_card, task_detail, tasks_list,
+    update_output_dir, verify_build,
 };
 use state::AppState;
 
@@ -38,6 +39,8 @@ async fn main() {
         .route("/download/:id", get(download_project))
         .route("/download/:id/:platform", get(download_platform))
         .route("/sync-folders", post(sync_folders))
+        .route("/api/select-folder", get(select_folder))
+        .route("/api/update-output-dir", post(update_output_dir))
         .route("/github/push", post(push_to_github))
         .route("/health", get(health))
         .with_state(shared_state);

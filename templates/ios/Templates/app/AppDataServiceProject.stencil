@@ -30,7 +30,7 @@ let project = Project(
             product: .staticFramework,
             bundleId: "{{ bundleIdPrefix }}.appdataservice.interface",
             deploymentTargets: deploymentTarget,
-            sources: ["Interface/**"],
+            buildableFolders: ["Interface"],
             dependencies: [
                 .external(name: "Dependencies"),
                 .external(name: "DependenciesMacros")
@@ -48,7 +48,7 @@ let project = Project(
             product: .staticFramework,
             bundleId: "{{ bundleIdPrefix }}.appdataservice",
             deploymentTargets: deploymentTarget,
-            sources: ["Sources/**"],
+            buildableFolders: ["Sources"],
             dependencies: [
                 .target(name: "AppDataServiceInterface"),
                 .project(target: "DailyAction", path: "../../Domains/DailyAction"),
@@ -67,7 +67,7 @@ let project = Project(
             product: .unitTests,
             bundleId: "{{ bundleIdPrefix }}.appdataservice.tests",
             deploymentTargets: deploymentTarget,
-            sources: ["Tests/**"],
+            buildableFolders: ["Tests"],
             dependencies: [
                 .target(name: "AppDataService"),
                 .target(name: "AppDataServiceInterface")

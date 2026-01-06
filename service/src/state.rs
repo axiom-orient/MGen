@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use serde::Serialize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 /// Task execution status
@@ -82,7 +82,8 @@ impl TaskState {
         };
 
         // Try to load log from file
-        let log = load_log_from_file(path).unwrap_or_else(|| "Project loaded from existing folder".to_string());
+        let log = load_log_from_file(path)
+            .unwrap_or_else(|| "Project loaded from existing folder".to_string());
 
         Self {
             status: TaskStatus::Success,
@@ -101,7 +102,7 @@ impl TaskState {
 /// Shared application state
 pub struct AppState {
     pub tasks: DashMap<Uuid, TaskState>,
-    pub generated_dir: String,
+    pub generated_dir: Mutex<String>,
 }
 
 impl AppState {
@@ -109,7 +110,7 @@ impl AppState {
         let generated_dir = default_generated_dir();
         let state = Arc::new(Self {
             tasks: DashMap::new(),
-            generated_dir: generated_dir.clone(),
+            generated_dir: Mutex::new(generated_dir.clone()),
         });
 
         // Scan existing projects on startup
@@ -123,7 +124,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             tasks: DashMap::new(),
-            generated_dir: default_generated_dir(),
+            generated_dir: Mutex::new(default_generated_dir()),
         }
     }
 }
@@ -178,21 +179,33 @@ fn scan_existing_projects(state: &Arc<AppState>, dir: &str) {
 
 /// Sync tasks with filesystem: remove tasks with deleted folders, add new folders
 pub fn sync_tasks_with_filesystem(state: &Arc<AppState>) {
-    // Step 1: Remove tasks whose folders no longer exist
+    // Get current generated directory
+    let current_dir = {
+        let lock = state.generated_dir.lock().unwrap();
+        lock.clone()
+    };
+
+    // Step 1: Remove tasks whose folders no longer exist OR are not in the current directory
     let tasks_to_remove: Vec<Uuid> = state
         .tasks
         .iter()
         .filter_map(|entry| {
             let task = entry.value();
-            let path_exists = task
+            let path_opt = task
                 .output_path
                 .as_ref()
                 .or(task.ios_path.as_ref())
-                .or(task.android_path.as_ref())
-                .map(|p| std::path::Path::new(p).exists())
-                .unwrap_or(false);
+                .or(task.android_path.as_ref());
 
-            if !path_exists {
+            let should_keep = if let Some(p) = path_opt {
+                let path = std::path::Path::new(p);
+                // Check existence AND that it belongs to current dir
+                path.exists() && p.starts_with(&current_dir)
+            } else {
+                false
+            };
+
+            if !should_keep {
                 Some(*entry.key())
             } else {
                 None
@@ -205,8 +218,7 @@ pub fn sync_tasks_with_filesystem(state: &Arc<AppState>) {
     }
 
     // Step 2: Scan for new folders
-    let dir = &state.generated_dir;
-    let path = std::path::Path::new(dir);
+    let path = std::path::Path::new(&current_dir);
     if !path.exists() {
         return;
     }

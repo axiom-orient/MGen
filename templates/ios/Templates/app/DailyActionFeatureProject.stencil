@@ -21,7 +21,7 @@ let project = Project(
             product: .framework,
             bundleId: "{{ bundleIdPrefix }}.dailyactionlist",
             deploymentTargets: .iOS("{{ deploymentTarget }}"),
-            sources: ["Sources/**"],
+            buildableFolders: ["Sources"],
             dependencies: [
                 .external(name: "ComposableArchitecture"),
                 .project(target: "DailyAction", path: "../../Domains/DailyAction")

@@ -69,7 +69,7 @@ pub fn render_polling(id: Uuid) -> String {
 }
 
 /// JavaScript for platform field toggling
-const JS_SCRIPTS: &str = r#"
+const JS_SCRIPTS: &str = r##"
 function updatePlatformFields() {
   const platform = document.querySelector('input[name="platform"]:checked');
   if (!platform) return;
@@ -88,10 +88,110 @@ function updatePlatformFields() {
     androidFields.classList.remove('hidden');
   }
 }
-"#;
+
+async function browseFolder() {
+  const btn = document.getElementById('choose-btn');
+  const input = document.querySelector('input[name="output_dir"]');
+  const statusEl = document.getElementById('folder-status');
+  
+  btn.disabled = true;
+  btn.textContent = 'Opening...';
+  
+  try {
+    const response = await fetch('/api/select-folder');
+    const data = await response.json();
+    
+    if (data.cancelled) {
+      // User cancelled, do nothing
+    } else if (data.path) {
+      input.value = data.path;
+      if (data.writable) {
+        statusEl.textContent = '✓ Writable';
+        statusEl.className = 'folder-status success';
+      } else {
+        statusEl.textContent = '⚠ Not writable';
+        statusEl.className = 'folder-status error';
+      }
+    } else if (data.error) {
+      statusEl.textContent = data.error;
+      statusEl.className = 'folder-status error';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Failed to open folder picker';
+    statusEl.className = 'folder-status error';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Choose';
+  }
+}
+
+async function chooseDashboardPath() {
+  const hero = document.getElementById('hero-section');
+  
+  try {
+    const response = await fetch('/api/select-folder');
+    const data = await response.json();
+    
+    if (data.path && data.writable) {
+      // POST the new path to update the state
+      // POST the new path to update the state.
+      // Use URLSearchParams to ensure application/x-www-form-urlencoded content type
+      // which matches Axum's Form extractor.
+      const params = new URLSearchParams();
+      params.append('path', data.path);
+      
+      const updateRes = await fetch('/api/update-output-dir', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params
+      });
+      
+      if (updateRes.ok) {
+        const newHeroHtml = await updateRes.text();
+        hero.innerHTML = newHeroHtml;
+
+        // Auto-sync folders after path change
+        const syncBtn = document.querySelector('.scan-button');
+        if (syncBtn) {
+            syncBtn.click();
+        }
+      }
+    } else if (data.error) {
+      alert(data.error);
+    }
+  } catch (e) {
+    console.error('Failed to update dashboard path:', e);
+  }
+}
+
+function showDeleteConfirm(id) {
+  const card = document.getElementById(`project-${id}`);
+  const actions = card.querySelector('.card-actions');
+  const originalActions = actions.innerHTML;
+  
+  actions.innerHTML = `
+    <div class="delete-confirm-overlay">
+      <span class="confirm-text">Delete?</span>
+      <button class="card-button confirm-btn" hx-delete="/task/${id}" hx-target="#project-${id}" hx-swap="outerHTML" onclick="event.stopPropagation()">Yes</button>
+      <button class="card-button cancel-btn" onclick="cancelDelete(event, '${id}', '${btoa(originalActions)}')">No</button>
+    </div>
+  `;
+  // Initialize HTMX on the new element
+  htmx.process(actions);
+}
+
+function cancelDelete(event, id, originalActionsBase64) {
+  event.stopPropagation();
+  const card = document.getElementById(`project-${id}`);
+  const actions = card.querySelector('.card-actions');
+  actions.innerHTML = atob(originalActionsBase64);
+}
+"##;
 
 /// All CSS styles for MGen UI (Apple-inspired minimal design)
-const CSS_STYLES: &str = r#"
+const CSS_STYLES: &str = r##"
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
@@ -520,6 +620,110 @@ input.input-lg {
     padding: 10px 12px; 
     font-size: 14px; 
     margin-bottom: 12px;
+}
+
+/* Input Group (for Browse button) */
+.input-group {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.input-group input {
+    flex: 1;
+    margin-bottom: 0;
+}
+.input-group .choose-btn {
+    padding: 10px 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+.input-group .choose-btn:hover {
+    background: var(--accent-hover);
+    transform: scale(1.02);
+}
+.input-group .choose-btn:disabled {
+    background: var(--muted);
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Folder Status Feedback */
+.folder-status {
+    font-size: 12px;
+    margin-top: 4px;
+    transition: all 0.2s;
+}
+.folder-status.success {
+    color: var(--success);
+}
+.folder-status.error {
+    color: var(--error);
+}
+
+/* Dashboard Meta Info */
+.meta-info-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 32px;
+    height: 40px; /* Enforce height for alignment */
+}
+.meta-info-container .meta-info {
+    margin-bottom: 0;
+    line-height: 1; /* Reset line height for text alignment */
+    display: flex;
+    align-items: center; /* Center content within P */
+}
+.choose-btn-sm {
+    padding: 5px 12px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+.choose-btn-sm:hover {
+    background: var(--accent-hover);
+    transform: scale(1.02);
+}
+
+/* Card Deletion UX */
+.delete-confirm-overlay {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: fadeIn 0.2s ease-out;
+}
+.confirm-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--error);
+    margin-right: 4px;
+}
+.confirm-btn {
+    background: var(--error) !important;
+    color: white !important;
+}
+.cancel-btn {
+    background: var(--muted) !important;
+    color: white !important;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* Compact Radio Cards */
@@ -1042,4 +1246,4 @@ input.input-lg {
   font-size: 14px;
   border: 1px solid var(--error);
 }
-"#;
+"##;

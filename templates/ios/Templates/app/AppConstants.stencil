@@ -1,35 +1,35 @@
 import Foundation
 
-enum AppConstants {
+public enum AppConstants {
   /// Remote Config keys - aligned across iOS and Android.
   /// Note: latest_app_version is NOT included here - it's fetched
   /// directly from the App Store using StoreVersionChecker.
-  enum RemoteConfig {
-    static let forceUpdateMinimumVersionKey = "force_update_min_version"
-    static let welcomeMessageKey = "welcome_message"
-    static let maintenanceModeEnabledKey = "maintenance_mode_enabled"
-    static let maintenanceMessageKey = "maintenance_message"
+  public enum RemoteConfig {
+    public static let forceUpdateMinimumVersionKey = "force_update_min_version"
+    public static let welcomeMessageKey = "welcome_message"
+    public static let maintenanceModeEnabledKey = "maintenance_mode_enabled"
+    public static let maintenanceMessageKey = "maintenance_message"
   }
 
-  enum Analytics {
-    static let sampleEventName = "app_sample_event"
-    static let sampleEventSourceKey = "source"
+  public enum Analytics {
+    public static let sampleEventName = "app_sample_event"
+    public static let sampleEventSourceKey = "source"
   }
 
   /// App-specific constants
-  enum App {
+  public enum App {
     /// App Store ID for this app. Set this value for Force Update functionality.
     /// Example: "1234567890"
-    static let appStoreId = "{{ appStoreId }}"
+    public static let appStoreId = "{{ appStoreId }}"
 
     /// Bundle ID prefix (e.g., "com.axiomorient")
-    static let bundleIdPrefix = "{{ bundleIdPrefix }}"
+    public static let bundleIdPrefix = "{{ bundleIdPrefix }}"
 
     /// App name
-    static let appName = "{{ name }}"
+    public static let appName = "{{ name }}"
 
     /// App Store URL for Force Update
-    static var appStoreURL: URL {
+    public static var appStoreURL: URL {
       if appStoreId.isEmpty {
         return URL(string: "https://apps.apple.com")!
       }

@@ -33,7 +33,7 @@ import ProjectDescription
 
 let tuist = Tuist(
     plugins: [
-        .git(url: "https://github.com/axiom-orient/TmaTemplates", tag: "2.0.0")
+        .git(url: "https://github.com/axiom-orient/tma", tag: "2.0.0")
     ]
 )
 ```

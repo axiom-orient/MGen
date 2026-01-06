@@ -14,7 +14,7 @@ OUTPUT_BASE_DIR="${OUTPUT_BASE_DIR:-/tmp/scaffold-output}"
 TUIST_VERSION="${TUIST_VERSION:-latest}"
 TUIST_VERSION_FILE="${TUIST_VERSION_FILE:-${TUIST_VERSION}}"
 CREATE_ROOT_PACKAGE="${CREATE_ROOT_PACKAGE:-false}"
-PLUGIN_GIT_URL="${PLUGIN_GIT_URL:-https://github.com/axiom-orient/TmaTemplates}"
+PLUGIN_GIT_URL="${PLUGIN_GIT_URL:-https://github.com/axiom-orient/tma}"
 PLUGIN_GIT_TAG="${PLUGIN_GIT_TAG:-}"
 PLUGIN_GIT_SHA="${PLUGIN_GIT_SHA:-5731b6b9e9e036a484164f0fb8dbcea5130b002b}"
 FORCE_TUIST_FILES=false
@@ -473,6 +473,27 @@ run_scaffold() {
   fi
 
   run_in_project "${TUIST_CMD[@]}" "${args[@]}"
+  
+  # Replace Tuist.swift with distribution version (remote plugin only)
+  # This ensures the generated project works independently without local MGen paths
+  log "[INFO] Replacing Tuist.swift with distribution version (remote plugin only)"
+  local tuist_swift="${PROJECT_DIR}/Tuist.swift"
+  cat > "$tuist_swift" <<'EOF'
+import ProjectDescription
+
+let tuist = Tuist(
+    project: .tuist(
+        plugins: [
+            .git(url: "https://github.com/axiom-orient/tma", sha: "aa41a4e9e4d2d87806749c9a493ec2e076efa016")
+        ],
+        generationOptions: .options(
+            resolveDependenciesWithSystemScm: true,
+            disableSandbox: true
+        )
+    )
+)
+EOF
+  log "[INFO] ✓ Tuist.swift replaced - project is now portable"
 }
 
 run_install() {

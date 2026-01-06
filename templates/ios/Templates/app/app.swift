@@ -103,9 +103,9 @@ let templateApp = Template(
         // ============================================================
         // AppDataService Module - sqlite-data CRUD Repository
         // ============================================================
-        .file(path: "Projects/Service/AppDataService/Project.swift", templatePath: "AppDataServiceProject.stencil"),
-        .file(path: "Projects/Service/AppDataService/Interface/AppDataRepositoryInterface.swift", templatePath: "AppDataServiceInterface.stencil"),
-        .file(path: "Projects/Service/AppDataService/Sources/AppDataRepository.swift", templatePath: "AppDataServiceSources.stencil"),
-        .file(path: "Projects/Service/AppDataService/Tests/AppDataRepositoryTests.swift", templatePath: "AppDataServiceTests.stencil")
+        .file(path: "Projects/Services/AppDataService/Project.swift", templatePath: "AppDataServiceProject.stencil"),
+        .file(path: "Projects/Services/AppDataService/Interface/AppDataRepositoryInterface.swift", templatePath: "AppDataServiceInterface.stencil"),
+        .file(path: "Projects/Services/AppDataService/Sources/AppDataRepository.swift", templatePath: "AppDataServiceSources.stencil"),
+        .file(path: "Projects/Services/AppDataService/Tests/AppDataRepositoryTests.swift", templatePath: "AppDataServiceTests.stencil")
     ]
 )

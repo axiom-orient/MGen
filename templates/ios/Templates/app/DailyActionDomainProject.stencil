@@ -21,7 +21,7 @@ let project = Project(
             product: .framework,
             bundleId: "{{ bundleIdPrefix }}.dailyaction",
             deploymentTargets: .iOS("{{ deploymentTarget }}"),
-            sources: ["Interface/**"],
+            buildableFolders: ["Interface"],
             dependencies: [
                 .external(name: "Dependencies"),
                 .external(name: "DependenciesMacros")

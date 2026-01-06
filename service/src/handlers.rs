@@ -123,27 +123,19 @@ fn render_single_card(task: &TaskState, id: Uuid) -> String {
             r##"{}
             {}
             <button class="card-button delete-button" 
-                    hx-delete="/task/{}" 
-                    hx-confirm="Are you sure you want to delete this project? This cannot be undone."
-                    hx-target="#project-{}" 
-                    hx-swap="outerHTML"
-                    onclick="event.stopPropagation()">
+                    onclick="event.stopPropagation(); showDeleteConfirm('{}')">
                 Delete
             </button>"##,
-            download_links, verify_button, id, id
+            download_links, verify_button, id
         )
     } else {
         // Even for failed tasks, allow deletion
         format!(
             r##"<button class="card-button delete-button" 
-                    hx-delete="/task/{}" 
-                    hx-confirm="Remove this failed task?"
-                    hx-target="#project-{}" 
-                    hx-swap="outerHTML"
-                    onclick="event.stopPropagation()">
+                    onclick="event.stopPropagation(); showDeleteConfirm('{}')">
                 Delete
             </button>"##,
-            id, id
+            id
         )
     };
 
@@ -320,10 +312,37 @@ pub async fn dashboard(State(state): State<Arc<AppState>>) -> Html<String> {
     let html = format!(
         r##"{}
 <div class="dashboard">
-  <div class="hero">
+  <div id="hero-section" class="hero">
+    {}
+  </div>
+
+  <div class="recent-section">
+    <div class="recent-header">
+      <h2>Recent Projects</h2>
+      <button class="scan-button" hx-post="/sync-folders" hx-target=".recent-section" hx-swap="outerHTML">Sync Folders</button>
+    </div>
+    <div class="task-grid">{}</div>
+  </div>
+</div>
+</body></html>"##,
+        base_html_with_nav("/"),
+        render_hero_section(&state.generated_dir.lock().unwrap()),
+        tasks_html
+    );
+
+    Html(html)
+}
+
+/// Renders just the hero section (used for partial updates)
+fn render_hero_section(generated_dir: &str) -> String {
+    format!(
+        r##"
     <h1>Mobile Generator</h1>
     <p class="subtitle">Create production-ready iOS and Android projects</p>
-    <p class="meta-info">Output Location: <code>{}</code></p>
+    <div class="meta-info-container">
+        <p class="meta-info">Output Location: <code>{}</code></p>
+        <button type="button" class="choose-btn-sm" onclick="chooseDashboardPath()">Choose</button>
+    </div>
     
     <div class="feature-grid">
       <div class="feature-card">
@@ -341,23 +360,33 @@ pub async fn dashboard(State(state): State<Arc<AppState>>) -> Html<String> {
     </div>
 
     <a href="/create" class="button create-button">Create Project</a>
-  </div>
+"##,
+        escape_html(generated_dir)
+    )
+}
 
-  <div class="recent-section">
-    <div class="recent-header">
-      <h2>Recent Projects</h2>
-      <button class="scan-button" hx-post="/sync-folders" hx-target=".recent-section" hx-swap="outerHTML">Sync Folders</button>
-    </div>
-    <div class="task-grid">{}</div>
-  </div>
-</div>
-</body></html>"##,
-        base_html_with_nav("/"),
-        escape_html(&state.generated_dir),
-        tasks_html
-    );
+#[derive(Deserialize)]
+pub struct UpdateDirForm {
+    pub path: String,
+}
 
-    Html(html)
+/// Updates the global output directory and re-renders the hero section
+pub async fn update_output_dir(
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<UpdateDirForm>,
+) -> Html<String> {
+    // Basic validation
+    let path = std::path::Path::new(&form.path);
+    if path.exists() && path.is_dir() {
+        // Update the state
+        if let Ok(mut dir) = state.generated_dir.lock() {
+            *dir = form.path.clone();
+        }
+        Html(render_hero_section(&state.generated_dir.lock().unwrap()))
+    } else {
+        // Return original if invalid
+        Html(render_hero_section(&state.generated_dir.lock().unwrap()))
+    }
 }
 
 // ============================================================================
@@ -529,7 +558,11 @@ pub fn render_form(error: Option<&str>, form: Option<&ScaffoldForm>) -> String {
             </div>
             <div class="form-group compact">
                 <label class="label-muted">Output Location <span class="label-small">(Optional)</span></label>
-                <input name="output_dir" value="{}" placeholder="Default: generated/" />
+                <div class="input-group">
+                    <input name="output_dir" value="{}" placeholder="Default: generated/" />
+                    <button type="button" id="choose-btn" class="choose-btn" onclick="browseFolder()">Choose</button>
+                </div>
+                <span id="folder-status" class="folder-status"></span>
             </div>
         </div>
       </div>
@@ -1363,5 +1396,96 @@ pub async fn push_to_github(
         )),
         Ok(Err(e)) => Html(format!("<div class='error'>Git Error: {}</div>", e)),
         Err(e) => Html(format!("<div class='error'>Task Error: {}</div>", e)),
+    }
+}
+
+// ============================================================================
+// Native Folder Selection (macOS)
+// ============================================================================
+
+/// Opens a native folder picker dialog using osascript on macOS.
+/// Returns the selected path as an HTML input field update.
+pub async fn select_folder() -> impl IntoResponse {
+    let script = r#"
+        tell application "System Events"
+            activate
+        end tell
+        set selectedFolder to choose folder with prompt "Select Output Location"
+        return POSIX path of selectedFolder
+    "#;
+
+    let result = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("osascript")
+            .args(["-e", script])
+            .output()
+    })
+    .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() => {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+            // Check if the path is writable
+            let is_writable = std::fs::metadata(&path)
+                .map(|m| !m.permissions().readonly())
+                .unwrap_or(false);
+
+            if is_writable {
+                // Return the path as JSON for the frontend to consume
+                (
+                    axum::http::StatusCode::OK,
+                    [("Content-Type", "application/json")],
+                    format!(
+                        r#"{{"path":"{}","writable":true}}"#,
+                        path.replace('"', "\\\"")
+                    ),
+                )
+            } else {
+                (
+                    axum::http::StatusCode::OK,
+                    [("Content-Type", "application/json")],
+                    format!(
+                        r#"{{"path":"{}","writable":false,"error":"This location is not writable. Please choose a different folder."}}"#,
+                        path.replace('"', "\\\"")
+                    ),
+                )
+            }
+        }
+        Ok(Ok(output)) => {
+            // User cancelled or error
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("User canceled") || stderr.contains("-128") {
+                (
+                    axum::http::StatusCode::OK,
+                    [("Content-Type", "application/json")],
+                    r#"{"cancelled":true}"#.to_string(),
+                )
+            } else {
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    [("Content-Type", "application/json")],
+                    format!(
+                        r#"{{"error":"Failed to open folder picker: {}"}}"#,
+                        stderr.replace('"', "\\\"")
+                    ),
+                )
+            }
+        }
+        Ok(Err(e)) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            [("Content-Type", "application/json")],
+            format!(
+                r#"{{"error":"Failed to run osascript: {}"}}"#,
+                e.to_string().replace('"', "\\\"")
+            ),
+        ),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            [("Content-Type", "application/json")],
+            format!(
+                r#"{{"error":"Task error: {}"}}"#,
+                e.to_string().replace('"', "\\\"")
+            ),
+        ),
     }
 }
