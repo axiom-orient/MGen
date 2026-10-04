@@ -1317,8 +1317,7 @@ pub async fn push_to_github(
     State(state): State<Arc<AppState>>,
     Form(form): Form<GitHubPushForm>,
 ) -> Html<String> {
-    use std::path::{Path, PathBuf};
-    use std::process::Command;
+    use std::path::PathBuf;
 
     let task = match state.tasks.get(&form.task_id) {
         Some(t) => t,
@@ -1334,6 +1333,10 @@ pub async fn push_to_github(
         None => return Html("<div class='error'>No output path</div>".to_string()),
     };
 
+    if let Err(error) = crate::github::validate_token(&form.token) {
+        return Html(format!("<div class='error'>{}</div>", error));
+    }
+
     let client = reqwest::Client::new();
     let res = client
         .post("https://api.github.com/user/repos")
@@ -1345,44 +1348,27 @@ pub async fn push_to_github(
 
     let res = match res {
         Ok(r) => r,
-        Err(e) => return Html(format!("<div class='error'>GitHub API Error: {}</div>", e)),
+        Err(_) => return Html("<div class='error'>GitHub API request failed</div>".to_string()),
     };
 
     if !res.status().is_success() {
-        let text = res.text().await.unwrap_or_default();
-        return Html(format!("<div class='error'>Failed: {}</div>", text));
+        return Html(format!(
+            "<div class='error'>GitHub API request failed ({})</div>",
+            res.status()
+        ));
     }
 
     let repo_json: serde_json::Value = res.json().await.unwrap_or_default();
-    let clone_url = repo_json["clone_url"].as_str().unwrap_or("");
+    let clone_url = repo_json["clone_url"].as_str().unwrap_or("").to_string();
     let html_url = repo_json["html_url"].as_str().unwrap_or("");
 
     if clone_url.is_empty() {
         return Html("<div class='error'>Failed to get clone URL</div>".to_string());
     }
 
-    let auth_url = clone_url.replace("https://", &format!("https://oauth2:{}@", form.token));
-    let path = output_path.clone();
-
-    let git_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
-        fn run_git(path: &Path, args: &[&str]) -> Result<(), String> {
-            let out = Command::new("git")
-                .current_dir(path)
-                .args(args)
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !out.status.success() {
-                return Err(String::from_utf8_lossy(&out.stderr).to_string());
-            }
-            Ok(())
-        }
-        run_git(&path, &["init"])?;
-        run_git(&path, &["add", "."])?;
-        run_git(&path, &["commit", "-m", "Initial commit from MGen"])?;
-        run_git(&path, &["branch", "-M", "main"])?;
-        run_git(&path, &["remote", "add", "origin", &auth_url])?;
-        run_git(&path, &["push", "-u", "origin", "main"])?;
-        Ok(())
+    let token = form.token;
+    let git_result = tokio::task::spawn_blocking(move || {
+        crate::github::push_project(&output_path, &clone_url, &token)
     })
     .await;
 
@@ -1392,10 +1378,13 @@ pub async fn push_to_github(
                 <strong>Successfully pushed to GitHub!</strong><br>
                 <a href="{}" target="_blank">Open Repository</a>
             </div>"##,
-            html_url
+            escape_html(html_url)
         )),
-        Ok(Err(e)) => Html(format!("<div class='error'>Git Error: {}</div>", e)),
-        Err(e) => Html(format!("<div class='error'>Task Error: {}</div>", e)),
+        Ok(Err(e)) => Html(format!(
+            "<div class='error'>Git Error: {}</div>",
+            escape_html(&e)
+        )),
+        Err(_) => Html("<div class='error'>Git task failed</div>".to_string()),
     }
 }
 

@@ -1,5 +1,22 @@
 # TmaTemplates – Tuist Modular Architecture Plugin
 
+## MGen wrapper
+
+MGen's iOS wrapper requires macOS and Tuist, with `mise` used for Tuist setup. Run from the MGen root (two directories above this guide):
+
+```bash
+./scripts/scaffold_ios.sh \
+  --name MyApp \
+  --bundle-id-prefix com.example \
+  --team-id YOUR_APPLE_TEAM_ID
+```
+
+`YOUR_APPLE_TEAM_ID` is a placeholder: supply the intended signing team rather than relying on the script's repository-specific default. `--name` is required, `--bundle-id-prefix` defaults to `com.axiomorient`, and `--deployment-target` defaults to `17.0`. Use `--help` for output, resume, plugin, Tuist-version and skip/dry-run options.
+
+If mise or Tuist is missing on a Homebrew host, the original setup path is `brew install mise`, then `mise use --global tuist@latest`. The wrapper can also install/select Tuist. These operations change the host's tools; they are not exercised by the offline Rust tests. Actual iOS scaffold, Apple signing and build verification remain target-host work.
+
+For the shared web interface, output/log paths and GitHub credential boundaries, see [service operation](../../service/USAGE.md).
+
 TMA는 **The Composable Architecture (TCA)**를 사용하는 iOS 프로젝트를 위한 전문 Tuist 플러그인입니다. `tuist scaffold` 한 번으로 App, Feature, Service, Domain, Shared 모듈을 동일한 규칙과 테스트 기반으로 생성하며, 현대적인 iOS 개발 워크플로우에 최적화된 구조를 제공합니다.
 
 ---

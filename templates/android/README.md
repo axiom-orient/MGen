@@ -1,5 +1,22 @@
 # TMAndroid
 
+## MGen wrapper
+
+Run the repository wrapper from the MGen root (two directories above this guide), using the bundled Android template:
+
+```bash
+./scripts/scaffold_android.sh \
+  --name MyApp \
+  --package-name com.example.myapp \
+  --output-dir ./projects
+```
+
+`--name` is required. `--package-name` defaults to `com.example.app`, `--min-sdk` to `24`, `--target-sdk` to `35`, and `--output-dir` to `/tmp/scaffold-output` unless `OUTPUT_BASE_DIR` overrides it. Use `--help` for the remaining wrapper options.
+
+Python 3.8+ and Cookiecutter are prerequisites. The wrapper attempts `brew install cookiecutter` when Cookiecutter is missing; if Homebrew is unavailable, install Cookiecutter separately before running it. On a Homebrew host, `brew install python3` and `brew install cookiecutter` are manual setup options. These commands install software and are not part of the offline service test suite. Android build/toolchain verification must be performed on the intended development host.
+
+For the shared web interface, output/log paths and GitHub credential boundaries, see [service operation](../../service/USAGE.md).
+
 > **Tuist-inspired Android project generator with modular architecture, convention plugins, and automated scaffolding**
 
 TMAndroid is the Android counterpart to iOS's [TmaTemplates](../TmaTemplates), providing enterprise-grade project scaffolding for modern Android development. Generate production-ready Android projects with clean architecture, Jetpack Compose, Hilt DI, and MVI pattern in seconds.

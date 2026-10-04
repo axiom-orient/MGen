@@ -3,6 +3,7 @@
 //! A web service for generating iOS and Android project scaffolds.
 
 mod generation;
+mod github;
 mod handlers;
 mod state;
 mod templates;
